@@ -1,0 +1,28 @@
+Kafka
+=====
+
+What it does
+------------
+Kafka is a message queue. Checkout writes an "order placed" event
+and continues. It does not wait for accounting or fraud-detection.
+
+Those two services read the same topic later. That is the point:
+checkout stays fast; bookkeeping and fraud checks happen aside.
+
+Demo only: one pod, no disk. Restart Kafka and old messages are gone.
+
+
+Related services
+----------------
+Writes:  checkout
+Reads:   accounting, frauddetection
+
+Accounting and fraud-detection wait until Kafka is up before they start.
+
+Also sends telemetry to otelcol (OpenTelemetry Collector).
+
+
+Files
+-----
+  deploy.yaml
+  svc.yaml     ClusterIP on 9092 (clients) and 9093 (controller)

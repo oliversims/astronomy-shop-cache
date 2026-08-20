@@ -55,7 +55,3 @@ test/tracetesting/tracetesting-vars.yaml
 
 !src/currency/build
 
-# Local notes. Keep CMakeLists.txt and requirements.txt tracked.
-*.txt
-!**/CMakeLists.txt
-!**/requirements.txt

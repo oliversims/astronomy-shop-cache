@@ -1,0 +1,29 @@
+Frontend
+========
+
+What it does
+------------
+The shop website (pages you click: home, product, cart, checkout).
+You on the internet do not hit this Service. Traffic goes:
+
+  browser -> Ingress -> frontendproxy -> frontend
+
+Frontend then calls the other shop APIs to build each page.
+
+
+Related services
+----------------
+Calls:
+  ad, cart, checkout, currency, productcatalog, recommendation,
+  shipping, flagd
+
+Called by: frontendproxy
+
+Browser traces: frontend sets a public OTLP URL through the proxy
+to otelcol (OpenTelemetry Collector) :4318. Server-side telemetry also goes to otelcol (OpenTelemetry Collector).
+
+
+Files
+-----
+  deploy.yaml
+  svc.yaml     ClusterIP on 8080

@@ -1,0 +1,227 @@
+How otelcol, OpenSearch, Jaeger, and 07-monitoring work together
+================================================================
+
+This is the shop telemetry path on EKS. Three kinds of signal
+leave the app: traces, logs, and metrics. They never all land
+in the same store. otelcol is the post office. Jaeger, OpenSearch,
+and Prometheus (from 07-monitoring) are the three cabinets.
+
+
+Picture
+-------
+
+  Shop pods (namespace otel-demo)
+       |  OTLP  (traces + logs + metrics together)
+       |  gRPC :4317  or  HTTP :4318
+       v
+  otelcol   (OpenTelemetry Collector)
+       |
+       +---- traces  ---->  Jaeger        :4317     (timelines)
+       +---- logs    ---->  OpenSearch    :9200     (index otel)
+       +---- metrics ---->  Prometheus    :9090     (07-monitoring)
+
+  You look at:
+    traces  -> Jaeger UI     https://jaeger.simsoliver.com/jaeger/ui
+    logs    -> Grafana       https://grafana.simsoliver.com  (OpenSearch datasource)
+    metrics -> Grafana       https://grafana.simsoliver.com  (Prometheus datasource)
+
+
+Who talks to whom
+-----------------
+Shop services do not talk to Jaeger, OpenSearch, or Prometheus.
+They only send OTLP to otelcol (Service name
+opentelemetry-demo-otelcol).
+
+otelcol splits the stream and forwards each kind to one cabinet.
+
+Grafana (07-monitoring) does not receive OTLP from the shop.
+It reads Prometheus and OpenSearch when you open a dashboard
+or Explore. It does not read Jaeger; the Jaeger website is
+its own UI.
+
+
+1. otelcol  (hub / post office)
+--------------------------------
+Lives in:     namespace otel-demo
+Manifests:    kubernetes/otelcol/
+Config:       kubernetes/otelcol/cm.yaml
+Service:      opentelemetry-demo-otelcol
+
+Role
+  Accept OTLP from shop pods, batch it, send each signal to
+  the right backend. If otelcol is down, Jaeger and OpenSearch
+  go quiet even if those pods are healthy.
+
+Listens
+  :4317  OTLP gRPC   (most services)
+  :4318  OTLP HTTP   (some services; browser traces via frontend-proxy)
+
+Sends
+  traces  ->  opentelemetry-demo-jaeger-query:4317
+  logs    ->  http://opentelemetry-demo-opensearch:9200   index otel
+  metrics ->  http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090/api/v1/otlp
+
+Also writes a short debug line to its own pod logs for each
+pipeline. That is not the cabinet; it is leftover in kubectl logs.
+
+Does not
+  Store history. Restart otelcol and you only lose in-flight
+  batches, not old traces or logs (those live in Jaeger /
+  OpenSearch, which are also ephemeral in this demo).
+
+
+2. Jaeger  (traces)
+-------------------
+Lives in:     namespace otel-demo
+Manifests:    kubernetes/jaeger/
+Service:      opentelemetry-demo-jaeger-query
+Public UI:    https://jaeger.simsoliver.com/jaeger/ui
+              (also https://shop.simsoliver.com/jaeger via frontend-proxy)
+
+Role
+  Store and draw request timelines. One checkout is one trace:
+  frontend -> checkout -> cart, catalog, payment, shipping, ...
+
+Receives from
+  otelcol only, OTLP gRPC on :4317. Shop pods never POST here.
+
+You use it for
+  "Why was this request slow?"  "Which service did checkout call?"
+
+Storage
+  In-memory in this cluster. Restart the Jaeger pod and old
+  traces are gone.
+
+Does not
+  Hold logs or Prometheus metrics. Port 16686 is the website.
+  Do not point the Ingress at :4317.
+
+
+3. OpenSearch  (logs)
+---------------------
+Lives in:     namespace otel-demo
+Manifests:    kubernetes/opensearch/
+Service:      opentelemetry-demo-opensearch:9200
+Index:        otel
+
+Role
+  Searchable diary of log lines from shop services (severity,
+  body, timestamps). otelcol writes the index. Grafana reads it.
+
+Receives from
+  otelcol only, HTTP :9200. Shop pods never talk to OpenSearch.
+
+You use it for
+  "What did currency log at 18:03?"  Grafana Explore -> OpenSearch.
+
+Storage
+  emptyDir on the pod. Restart OpenSearch and old logs are gone.
+  Security plugin is off (plain HTTP) for this demo.
+
+Does not
+  Hold traces. That is Jaeger.
+
+
+4. 07-monitoring  (Prometheus + Grafana + cluster scrapes)
+----------------------------------------------------------
+Lives in:     namespace monitoring  (not otel-demo)
+Terraform:    eks-install/07-monitoring/
+Helm:         kube-prometheus-stack
+Public UI:    https://grafana.simsoliver.com  (Grafana only)
+
+Prometheus and Alertmanager stay ClusterIP. They are not on
+the internet.
+
+Role of the stack
+  Cluster health (nodes, pods, Deployments) plus a place to
+  graph shop metrics that otelcol forwarded. Grafana is the
+  only public door.
+
+Pieces
+
+  Prometheus
+    Scrapes kube-state-metrics, node-exporter, and other
+    kube-prometheus-stack jobs by itself. That path does not
+    go through otelcol.
+
+    Also has enableOTLPReceiver = true so otelcol can POST
+    shop metrics to
+    /api/v1/otlp
+    on
+    kube-prometheus-stack-prometheus.monitoring.svc:9090
+
+    So Prometheus holds:
+      - cluster numbers  (scraped)
+      - shop numbers     (pushed by otelcol)
+
+  Grafana
+    Default datasource: Prometheus  (dashboards, pod CPU, the
+    pod-down alert via kube-state-metrics).
+
+    Extra datasource: OpenSearch
+      url  http://opentelemetry-demo-opensearch.otel-demo.svc.cluster.local:9200
+      index otel
+    That is how Grafana Explore shows shop logs. Grafana does
+    not scrape OpenSearch on a timer; it queries when you look.
+
+    Plugin: grafana-opensearch-datasource (installed by Terraform).
+
+    Slack: Grafana talks to Slack itself for rule pod-down.
+    Alertmanager is in the Helm chart but is not used for that
+    shop alert. See grafana-slack-alerts.txt.
+
+  kube-state-metrics / node-exporter
+    Built into 07-monitoring. They report Kubernetes object
+    counts and node stats to Prometheus. Independent of otelcol.
+
+Does not
+  Receive traces. No Jaeger datasource in this Grafana.
+  Open traces in the Jaeger UI.
+
+
+Namespaces (easy to mix up)
+---------------------------
+otel-demo     shop + otelcol + Jaeger + OpenSearch
+monitoring    Prometheus + Grafana + Alertmanager + exporters
+
+
+What is public vs in-cluster
+----------------------------
+Public (HTTPS ALB)
+  Grafana     grafana.simsoliver.com
+  Jaeger UI   jaeger.simsoliver.com
+  Shop        shop.simsoliver.com   (Jaeger also at /jaeger)
+
+In-cluster only
+  otelcol :4317 / :4318
+  OpenSearch :9200
+  Prometheus :9090
+  Jaeger OTLP :4317
+
+
+If something is empty
+---------------------
+No traces in Jaeger
+  Shop not sending, or otelcol down, or Jaeger just restarted
+  (memory store).
+
+No logs in Grafana OpenSearch
+  otelcol down, OpenSearch restarted (emptyDir), or Grafana
+  datasource URL / index not otel.
+
+No shop metrics on Grafana Prometheus dashboards
+  otelcol not reaching
+  kube-prometheus-stack-prometheus.monitoring:9090/api/v1/otlp
+  or Prometheus OTLP receiver disabled.
+
+Cluster dashboards still work
+  Those come from 07-monitoring scrapes, not from otelcol.
+
+
+One-line roles
+--------------
+otelcol       split OTLP from the shop and fan it out
+Jaeger        keep traces; show timelines
+OpenSearch    keep logs; Grafana searches them
+07-monitoring Prometheus stores metrics; Grafana is the console
+              (and cluster scrapes that never touch otelcol)

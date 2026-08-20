@@ -1,0 +1,281 @@
+Grafana Slack alerts (website only)
+===================================
+
+This path sends a Slack message when a shop Deployment in
+namespace otel-demo is missing at least one pod.
+
+Nothing is stored in Git. The webhook URL is a secret. Do not
+paste it into this repo, Terraform, kubernetes/, or a chat log.
+
+Grafana in this cluster has no disk (07-monitoring never turned
+on persistence). A Grafana pod restart can wipe the contact
+point and the rule. If that happens, redo the Grafana screens
+below. Slack (channel + app + webhook) does not need to be
+redone unless you deleted the app.
+
+
+What each piece is
+------------------
+Slack channel     mailbox (#alert-optl)
+Slack webhook     doorbell URL (Incoming Webhook)
+Grafana contact   slack-alerts  — Grafana rings that doorbell
+Grafana rule      pod-down      — when to ring it
+Prometheus        notebook Grafana reads
+kube-state-metrics  answers "how many Deployment pods are missing?"
+
+Alertmanager (the Helm smoke alarm in monitoring) is not used
+here. Grafana talks to Slack itself.
+
+
+Order
+-----
+1. Slack: channel + app + webhook (keep the URL private)
+2. Grafana: contact point slack-alerts  (Test it)
+3. Deploy the shop (Argo CD, otel-demo pods Running)
+4. Grafana: save the rule pod-down
+
+Do not save the alert rule before the shop is up. A red alert
+then is hard to read: Slack vs "the app is not deployed yet."
+
+The contact point can exist before the shop. The rule should
+not.
+
+
+Names used
+----------
+Slack workspace     Devops_microservice
+Slack channel       #alert-optl
+Slack app           grafana-alerts
+Grafana contact     slack-alerts
+Grafana folder      shop
+Evaluation group    shop
+Alert rule          pod-down
+
+
+================================================================
+PART 1 — Slack (do this first)
+================================================================
+
+Slack does not create the alert. It only receives the message.
+You create a channel and a doorbell (Incoming Webhook).
+
+
+1. Channel (Slack desktop)
+--------------------------
+Do not click "Slack" under Apps.
+Do not click "+ Connect apps". That is the app store. The
+webhook is not created there.
+
+Click the + beside Channels (or right-click Channels → create).
+Name: alert-optl
+Public is fine for a demo.
+
+
+2. App (browser, not Slack desktop)
+-----------------------------------
+Leave Slack. Open Chrome or Edge, same account as the workspace:
+
+  https://api.slack.com/apps
+
+Create New App → From scratch
+  App name:   grafana-alerts
+  Workspace:  Devops_microservice
+  Create App
+
+
+3. Incoming Webhook
+-------------------
+On the grafana-alerts app page, left menu:
+
+  Incoming Webhooks
+  Activate Incoming Webhooks → On
+  Add New Webhook to Workspace
+  Channel: #alert-optl
+  Allow / Save
+
+Copy the URL. It starts with:
+
+  https://hooks.slack.com/services/
+
+Keep it in a private notepad. If Slack asks an admin to approve
+the app, that must finish before the URL appears.
+
+Slack is done when you have: channel, app, webhook URL.
+
+
+================================================================
+PART 2 — Grafana contact point (doorbell)
+================================================================
+
+Open:  https://grafana.simsoliver.com
+User:  admin
+Password (PowerShell, cluster must be reachable):
+
+  kubectl get secret kube-prometheus-stack-grafana -n monitoring -o jsonpath="{.data.admin-password}" | ForEach-Object { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_)) }
+
+Do not send that password or the webhook to chat.
+
+
+Contact point
+-------------
+Alerting (bell) → Contact points → Add / Create contact point
+
+  Name:          slack-alerts
+  Integration:   Slack
+  Webhook URL:   paste the Slack URL
+
+Test. #alert-optl should get a Grafana test message.
+Then Save contact point.
+
+If Test works, Slack is wired. You still need a rule or Grafana
+will not shout on its own.
+
+
+================================================================
+PART 3 — Shop must be up before the rule
+================================================================
+
+  kubectl apply -f argocd/application.yaml
+  kubectl get application otel-demo -n argocd
+  kubectl get pods -n otel-demo
+
+Expect Synced / Healthy and 22 Running pods (see restore.txt).
+
+Then create the rule.
+
+
+================================================================
+PART 4 — Grafana alert rule pod-down
+================================================================
+
+Alerting → Alert rules → New alert rule
+
+
+1. Name
+-------
+  Rule name:  pod-down
+
+
+2. Query A (what Prometheus answers)
+------------------------------------
+  Data source:  Prometheus  (the default one)
+  Switch to Code if you see a metrics picker
+  Query:
+
+    kube_deployment_status_replicas_unavailable{namespace="otel-demo"}
+
+  Meaning: how many shop Deployment pods are missing?
+  0 is healthy.
+
+  Run queries / Preview. Lines should sit near 0.
+  If empty, wait a minute and run again.
+
+  Do not use  up == 0  for this rule. That watches Prometheus
+  scrape targets (node-exporter, and so on), not shop
+  Deployments. Shop pods send OTLP to otelcol; they are not
+  those scrape targets.
+
+
+3. Alert condition (when to shout)
+----------------------------------
+  Expression:  Threshold
+  Input:       A
+  IS ABOVE     0
+
+  Meaning: at least one shop Deployment is short a pod.
+
+
+4. Folder and labels
+--------------------
+  Folder:  + New folder → shop  (or pick shop if it exists)
+  Labels:  leave "No labels selected"
+           Do not add labels. Those are for notification-policy
+           routing. This rule goes straight to slack-alerts.
+
+
+5. Evaluation behavior
+----------------------
+  Evaluation group:  + New evaluation group
+    Name:      shop
+    Interval:  1m     (how often Grafana checks)
+    Create it, or pick shop if it already exists.
+
+  Pending period:  5m
+    A Deployment can be short a pod for up to 5 minutes
+    before Slack gets a message. A 10-second blip will not page.
+
+  Advanced — no data and error handling (leave defaults):
+    Alert state if no data or all values are null:  No Data
+    Alert state if execution error or timeout:      Error
+
+  No Data  = Prometheus did not answer (or returned empty).
+             That is not the same as a missing shop pod.
+             Do not set this to Alerting (Slack spam).
+  Error    = the query broke (timeout). Same idea: do not
+             pretend the shop is down.
+
+
+6. Notifications
+----------------
+  Contact point:  slack-alerts
+
+  If you only see "Use notification policy", turn on
+  Advanced / Override and pick slack-alerts directly.
+
+
+7. Notification message (optional)
+----------------------------------
+  Slack still works if you leave this empty. Short text
+  makes the Slack message easier to read.
+
+  Summary:
+    A shop Deployment in otel-demo is missing at least one pod.
+
+  Description:
+    Grafana rule pod-down. Prometheus metric:
+    kube_deployment_status_replicas_unavailable in namespace
+    otel-demo. Check: kubectl get pods -n otel-demo
+
+  Runbook URL:  leave blank (or leave https://). No runbook page yet.
+
+  Do not click + Add custom annotation.
+  Do not click Link dashboard and panel.
+
+
+8. Save
+-------
+  Save rule and exit.
+
+  You should not get Slack while the shop is healthy (metric is 0).
+  Slack fires after the condition stays true for the pending
+  period (5 minutes).
+
+
+================================================================
+PART 5 — What this is not
+================================================================
+
+Jaeger does not send Slack. Traces stay in the Jaeger UI.
+OpenSearch can be used later for log alerts. This first rule
+is Prometheus only.
+
+Other ways we did not use (on purpose):
+  Terraform / Git webhook     — public repo, secret would leak
+  Kubernetes Secret           — survives restart, more files
+  Alertmanager Helm config    — extra YAML; Grafana is enough
+  Slack "+ Connect apps"      — wrong door for this webhook
+
+
+If Grafana forgets the rule
+---------------------------
+Grafana pod restarted and the screens are empty: paste the
+webhook again (contact point), then recreate pod-down from
+Part 4. Slack channel and app stay as they are.
+
+
+Related files
+-------------
+  kube-prometheus-stack.txt   what Prometheus / Grafana / Alertmanager are
+  verify.txt                  Grafana URL and admin password command
+  restore.txt                 shop deploy (22 pods)
+  07-monitoring/main.tf       Helm stack (no Slack settings in Git)

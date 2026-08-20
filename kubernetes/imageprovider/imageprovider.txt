@@ -1,0 +1,24 @@
+Image provider
+==============
+
+What it does
+------------
+Serves product photos. The public site does not talk to this
+Service directly. frontendproxy fetches images and returns them
+to the browser.
+
+This Deployment does not set FLAGD_HOST. Slow-image demo behavior
+is not configured in this folder.
+
+
+Related services
+----------------
+Called by: frontendproxy
+
+Also sends telemetry to otelcol (OpenTelemetry Collector).
+
+
+Files
+-----
+  deploy.yaml
+  svc.yaml     ClusterIP on 8081

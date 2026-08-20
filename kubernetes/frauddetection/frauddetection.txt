@@ -1,0 +1,27 @@
+Fraud detection
+===============
+
+What it does
+------------
+Reads the same Kafka order events as accounting and checks whether
+an order looks fraudulent. Nothing calls it over HTTP. There is
+no svc.yaml.
+
+Checkout does not wait for this check. flagd can change how this
+consumer behaves (demo flags around Kafka / fraud).
+
+
+Related services
+----------------
+Reads: kafka (events written by checkout)
+Asks:  flagd
+
+No other service has an HTTP client to fraud-detection.
+
+Also sends telemetry to otelcol (OpenTelemetry Collector).
+
+
+Files
+-----
+  deploy.yaml
+  (no svc.yaml)

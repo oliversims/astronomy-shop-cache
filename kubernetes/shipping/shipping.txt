@@ -1,0 +1,28 @@
+Shipping
+========
+
+What it does
+------------
+Answers delivery questions: cost and (demo) tracking-style info.
+It does not invent the price. It asks quote, then returns that
+answer to whoever called.
+
+Shoppers do not call shipping from the internet. The website and
+checkout call it inside the cluster.
+
+
+Related services
+----------------
+Calls: quote
+
+Called by:
+  frontend   shipping estimate in the UI
+  checkout   shipping as part of place-order
+
+Also sends telemetry to otelcol (OpenTelemetry Collector).
+
+
+Files
+-----
+  deploy.yaml
+  svc.yaml     ClusterIP on 8080

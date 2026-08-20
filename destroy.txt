@@ -1,0 +1,68 @@
+Destroy this project
+====================
+
+Run from WSL or Git Bash, repo root. AWS CLI logged in. Your IP must
+still be allowed on the EKS API until the cluster is gone.
+
+This does not delete GitHub, GHCR images, or the simsoliver.com domain.
+
+
+1. kubectl
+
+   aws eks update-kubeconfig --name my-eks-cluster --region us-east-1
+
+
+2. Shop (so the shop ALB rule goes away before Terraform)
+
+   Be in the repo root (the folder that contains argocd/):
+
+     cd /mnt/c/Users/guyol/ultimate-devops-project-demo
+
+   On PowerShell instead:
+
+     cd C:\Users\guyol\ultimate-devops-project-demo
+
+   kubectl delete application otel-demo -n argocd
+   kubectl delete namespace otel-demo
+
+   Wait 1–2 minutes, then confirm. You want NotFound, not Terminating.
+
+     kubectl get application otel-demo -n argocd
+     # Error from server (NotFound): applications.argoproj.io "otel-demo" not found
+
+     kubectl get ns otel-demo
+     # Error from server (NotFound): namespaces "otel-demo" not found
+
+     kubectl get pods -n otel-demo
+     # Error from server (NotFound): namespaces "otel-demo" not found
+
+     kubectl get ingress -A
+     # Must NOT list:
+     #   frontend-proxy  host shop.simsoliver.com
+     #   jaeger          host jaeger.simsoliver.com
+     # argocd and grafana ingresses are still there until step 3
+
+   If the namespace stays Terminating, wait and run get ns again.
+   Do not start step 3 until otel-demo is NotFound.
+
+
+3. Terraform (reverse order)
+
+   cd eks-install
+   ./destroy-07-to-00.sh
+
+   00-s3: prevent_destroy is already false in 00-s3/main.tf, so
+   the script can destroy the state bucket. If destroy of 00-s3
+   fails because that block was turned back on, then:
+
+     # in eks-install/00-s3/main.tf remove lifecycle { prevent_destroy = true }
+     cd eks-install/00-s3
+     terraform apply
+     terraform destroy
+
+
+4. Check AWS console
+
+   EC2 → Load Balancers (no leftover k8s-... ALBs)
+   EKS → clusters (my-eks-cluster gone)
+   S3 → terraform-eks-state-s3-bucket-* gone if you destroyed 00-s3

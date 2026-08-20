@@ -1,0 +1,22 @@
+Prereq (once):
+  aws eks update-kubeconfig --name my-eks-cluster --region us-east-1
+
+1) Argo CD pods
+  kubectl get pods -n argocd
+
+  Expected: all pods STATUS Running (server, repo-server, application-controller, redis, ...)
+
+2) Ingress (ALB)
+  kubectl get ingress -n argocd
+
+  Expected:
+    NAME     CLASS   HOSTS                    ADDRESS
+    argocd   alb     argocd.simsoliver.com    k8s-myeksclu-....elb.amazonaws.com
+
+  ADDRESS may take 1–2 minutes. Empty ADDRESS means the ALB is still creating.
+
+3) URL
+  Open: https://argocd.simsoliver.com
+  Login: admin
+  Password (PowerShell):
+    kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | ForEach-Object { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_)) }
