@@ -28,7 +28,7 @@ metadata:
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
     # Same cert as kubernetes/frontendproxy/ingress.yaml
-    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:742934034265:certificate/848e7b15-22b8-4060-b00b-2eb4d5c1813b
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:742934034265:certificate/abbc463e-2700-4746-8082-991a77b4f1f9
     alb.ingress.kubernetes.io/backend-protocol: HTTP
     alb.ingress.kubernetes.io/healthcheck-path: /jaeger/ui
     external-dns.alpha.kubernetes.io/hostname: jaeger.simsoliver.com
