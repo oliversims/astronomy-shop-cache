@@ -15,7 +15,7 @@ echo "==============================="
 echo "STEP-1: Create VPC using Terraform"
 echo "==============================="
 cd "${ROOT}/01-vpc"
-terraform init
+terraform init -reconfigure
 terraform apply --auto-approve
 sleep 10
 
@@ -24,7 +24,7 @@ echo "==============================="
 echo "STEP-2: Create EKS using Terraform"
 echo "==============================="
 cd "${ROOT}/02-eks"
-terraform init
+terraform init -reconfigure
 terraform apply --auto-approve
 sleep 10
 
@@ -33,7 +33,7 @@ echo "==============================="
 echo "STEP-3: Create ACM using Terraform"
 echo "==============================="
 cd "${ROOT}/03-acm"
-terraform init
+terraform init -reconfigure
 terraform apply --auto-approve
 sleep 10
 
@@ -42,7 +42,7 @@ echo "==============================="
 echo "STEP-4: Create ALB Controller using Terraform"
 echo "==============================="
 cd "${ROOT}/04-alb"
-terraform init
+terraform init -reconfigure
 terraform apply --auto-approve
 sleep 10
 
@@ -51,7 +51,7 @@ echo "==============================="
 echo "STEP-5: Create ExternalDNS using Terraform"
 echo "==============================="
 cd "${ROOT}/05-external-dns"
-terraform init
+terraform init -reconfigure
 terraform apply --auto-approve
 sleep 10
 
@@ -60,7 +60,7 @@ echo "==============================="
 echo "STEP-6: Create Argo CD using Terraform"
 echo "==============================="
 cd "${ROOT}/06-argocd"
-terraform init
+terraform init -reconfigure
 terraform apply --auto-approve
 sleep 10
 
@@ -69,7 +69,7 @@ echo "==============================="
 echo "STEP-7: Create monitoring using Terraform"
 echo "==============================="
 cd "${ROOT}/07-monitoring"
-terraform init
+terraform init -reconfigure
 terraform apply --auto-approve
 sleep 10
 

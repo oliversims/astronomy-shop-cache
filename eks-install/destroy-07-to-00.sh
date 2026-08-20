@@ -13,7 +13,7 @@ echo "==============================="
 echo "STEP-1: Destroy monitoring using Terraform"
 echo "==============================="
 cd "${ROOT}/07-monitoring"
-terraform init
+terraform init 
 terraform destroy --auto-approve
 sleep 10
 
@@ -22,7 +22,7 @@ echo "==============================="
 echo "STEP-2: Destroy Argo CD using Terraform"
 echo "==============================="
 cd "${ROOT}/06-argocd"
-terraform init
+terraform init 
 terraform destroy --auto-approve
 sleep 10
 
@@ -31,7 +31,7 @@ echo "==============================="
 echo "STEP-3: Destroy ExternalDNS using Terraform"
 echo "==============================="
 cd "${ROOT}/05-external-dns"
-terraform init
+terraform init 
 terraform destroy --auto-approve
 sleep 10
 
@@ -40,7 +40,7 @@ echo "==============================="
 echo "STEP-4: Destroy ALB Controller using Terraform"
 echo "==============================="
 cd "${ROOT}/04-alb"
-terraform init
+terraform init 
 terraform destroy --auto-approve
 sleep 10
 
@@ -49,7 +49,7 @@ echo "==============================="
 echo "STEP-5: Destroy ACM using Terraform"
 echo "==============================="
 cd "${ROOT}/03-acm"
-terraform init
+terraform init 
 terraform destroy --auto-approve
 sleep 10
 
@@ -58,7 +58,7 @@ echo "==============================="
 echo "STEP-6: Destroy EKS using Terraform"
 echo "==============================="
 cd "${ROOT}/02-eks"
-terraform init
+terraform init 
 terraform destroy --auto-approve
 sleep 10
 
@@ -67,7 +67,7 @@ echo "==============================="
 echo "STEP-7: Destroy VPC using Terraform"
 echo "==============================="
 cd "${ROOT}/01-vpc"
-terraform init
+terraform init 
 terraform destroy --auto-approve
 sleep 10
 
@@ -76,7 +76,7 @@ echo "==============================="
 echo "STEP-8: Destroy S3 state using Terraform"
 echo "==============================="
 cd "${ROOT}/00-s3"
-terraform init
+terraform init 
 terraform destroy --auto-approve
 
 echo
