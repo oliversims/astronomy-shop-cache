@@ -26,7 +26,7 @@ terraform {
 
   # Remote state: S3 holds this stack's state; DynamoDB prevents concurrent applies.
   backend "s3" {
-    bucket         = "terraform-eks-state-s3-bucket-wv8zkt"
+    bucket         = "terraform-eks-state-s3-bucket-cqidm4"
     key            = "04-alb/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "terraform-eks-state-locks"

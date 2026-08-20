@@ -91,7 +91,7 @@
       "picture": "OpticalTubeAssembly.jpg",
       "priceUsd": {
         "currencyCode": "USD",
-        "units": 3599,
+        "units": 1000,
         "nanos": 0
       },
       "categories": ["accessories", "telescopes", "assembly"]

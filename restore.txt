@@ -18,7 +18,7 @@ Shop images are already on GHCR (public). Do not remirror them.
 
    Paste that name into backend.s3.bucket (and any remote_state bucket)
    in 01-vpc through 07-monitoring if it differs from
-   terraform-eks-state-s3-bucket-wv8zkt. Skip this paste if that bucket
+   terraform-eks-state-s3-bucket-cqidm4. Skip this paste if that bucket
    still exists — stacks 01-07 already use it.
 
 

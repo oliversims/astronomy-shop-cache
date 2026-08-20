@@ -7,6 +7,7 @@ if those files are not on origin yet.
    aws eks update-kubeconfig --name my-eks-cluster --region us-east-1
 
 2. Register the app (this is the only kubectl apply you need)
+   cd /mnt/c/Users/guyol/ultimate-devops-project-demo
    kubectl apply -f argocd/application.yaml
 
 3. Argo CD creates namespace otel-demo and syncs kubernetes/ by itself.
