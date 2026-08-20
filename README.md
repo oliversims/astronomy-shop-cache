@@ -120,6 +120,12 @@ Argo CD ◄──── watches main ───────────┘
 The shop is a polyglot microservice catalog. Checkout spans frontend, cart, catalog, currency, payment, shipping, quote, email, recommendation, ad, accounting, and fraud detection, plus Kafka, Valkey, Flagd, and a load generator.
 
 <p align="center">
+  <img src="images/service-map.png" alt="Shop service map: polyglot services and how checkout, cart, payment, and shipping connect" width="100%" />
+  <br/>
+  <em>Shop service map — languages and request paths for a checkout</em>
+</p>
+
+<p align="center">
   <img src="images/argocd.png" alt="Argo CD application tree showing shop Deployments Synced and Healthy" width="100%" />
   <br/>
   <em>Argo CD Application: Synced to main, Healthy, 22 workloads in the shop namespace</em>
