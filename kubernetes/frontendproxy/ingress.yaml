@@ -1,0 +1,41 @@
+# ============================================================
+# Ingress — Frontend Proxy (AWS ALB)
+#
+# This IS the AWS load balancer path. When applied, the AWS
+# Load Balancer Controller (ingressClassName: alb) creates a
+# public Application Load Balancer and points it at the
+# frontendproxy ClusterIP. ClusterIP Services elsewhere in
+# this demo are in-cluster only; this object is the exception.
+#
+# It works together with:
+#   frontendproxy/svc.yaml     → backend Service :8080
+#   frontendproxy/deploy.yaml  → Envoy pods behind that Service
+# ============================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend-proxy
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    # Same ALB as Argo CD and Grafana (06-argocd / 07-monitoring).
+    alb.ingress.kubernetes.io/group.name: my-eks-cluster-public
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    # From: cd eks-install/03-acm && terraform output -raw certificate_arn
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:742934034265:certificate/848e7b15-22b8-4060-b00b-2eb4d5c1813b
+    alb.ingress.kubernetes.io/backend-protocol: HTTP
+    external-dns.alpha.kubernetes.io/hostname: shop.simsoliver.com
+spec:
+  ingressClassName: alb
+  rules:
+    - host: shop.simsoliver.com
+      http:
+        paths:
+          - path: "/"
+            pathType: Prefix
+            backend:
+              service:
+                name: opentelemetry-demo-frontendproxy
+                port:
+                  number: 8080

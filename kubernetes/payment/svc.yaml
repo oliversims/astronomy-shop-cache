@@ -1,0 +1,48 @@
+---
+# ============================================================
+# Service — Payment Service
+#
+# ClusterIP for card charges at checkout. Other pods reach it
+# as opentelemetry-demo-paymentservice on port 8080.
+# ClusterIP is in-cluster only — not an AWS load balancer.
+#
+# It works together with:
+#   deploy.yaml → payment pods selected by opentelemetry.io/name
+#   kubernetes/checkout/deploy.yaml → caller (PAYMENT_SERVICE_ADDR)
+# ============================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: opentelemetry-demo-paymentservice
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-paymentservice
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: paymentservice
+    app.kubernetes.io/name: opentelemetry-demo-paymentservice
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+spec:
+
+  # ------------------------------------------------------------
+  # TYPE
+  # ClusterIP — reachable only inside the cluster. This is not
+  # a LoadBalancer and does not create an AWS NLB/ALB.
+  # ------------------------------------------------------------
+  type: ClusterIP
+
+  # ------------------------------------------------------------
+  # PORTS
+  # 8080 → targetPort 8080 (PAYMENT_SERVICE_PORT in deploy.yaml).
+  # ------------------------------------------------------------
+  ports:
+    - port: 8080
+      name: tcp-service
+      targetPort: 8080
+
+  # ------------------------------------------------------------
+  # SELECTOR
+  # Routes traffic to pods with this label (the payment Deployment).
+  # ------------------------------------------------------------
+  selector:
+    opentelemetry.io/name: opentelemetry-demo-paymentservice

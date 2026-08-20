@@ -1,0 +1,49 @@
+---
+# ============================================================
+# Service — Valkey
+#
+# ClusterIP for the Valkey cache. Cart pods reach it as
+# opentelemetry-demo-valkey on port 6379 (name: valkey).
+# ClusterIP is in-cluster only — not an AWS load balancer.
+#
+# It works together with:
+#   deploy.yaml → Valkey pods selected by opentelemetry.io/name
+#   kubernetes/cart/deploy.yaml → client (VALKEY_ADDR)
+# ============================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: opentelemetry-demo-valkey
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-valkey
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: valkey
+    app.kubernetes.io/name: opentelemetry-demo-valkey
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+spec:
+
+  # ------------------------------------------------------------
+  # TYPE
+  # ClusterIP — reachable only inside the cluster. This is not
+  # a LoadBalancer and does not create an AWS NLB/ALB.
+  # ------------------------------------------------------------
+  type: ClusterIP
+
+  # ------------------------------------------------------------
+  # PORTS
+  # 6379 named valkey — Redis-compatible protocol. Cart uses
+  # opentelemetry-demo-valkey:6379.
+  # ------------------------------------------------------------
+  ports:
+    - port: 6379
+      name: valkey
+      targetPort: 6379
+
+  # ------------------------------------------------------------
+  # SELECTOR
+  # Routes traffic to pods with this label (the Valkey Deployment).
+  # ------------------------------------------------------------
+  selector:
+    opentelemetry.io/name: opentelemetry-demo-valkey

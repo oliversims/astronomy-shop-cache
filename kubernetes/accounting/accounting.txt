@@ -1,0 +1,27 @@
+Accounting
+==========
+
+What it does
+------------
+Writes completed orders into a ledger. Nothing in the shop calls
+this over HTTP. There is no svc.yaml.
+
+Checkout publishes an order event to Kafka. Accounting consumes
+that event. Checkout does not wait for accounting to finish.
+
+It waits for Kafka to be up before it starts.
+
+
+Related services
+----------------
+Reads: kafka (events written by checkout)
+
+No other service has an HTTP client to accounting.
+
+Also sends telemetry to otelcol (OpenTelemetry Collector).
+
+
+Files
+-----
+  deploy.yaml
+  (no svc.yaml)

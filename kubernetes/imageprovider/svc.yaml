@@ -1,0 +1,49 @@
+---
+# ============================================================
+# Service — Image Provider
+#
+# ClusterIP for product images. Other pods reach it as
+# opentelemetry-demo-imageprovider on port 8081 → targetPort
+# 8081. ClusterIP is in-cluster only — not an AWS load balancer.
+#
+# It works together with:
+#   deploy.yaml → imageprovider pods selected by opentelemetry.io/name
+#   kubernetes/frontendproxy/deploy.yaml → IMAGE_PROVIDER_HOST
+# ============================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: opentelemetry-demo-imageprovider
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-imageprovider
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: imageprovider
+    app.kubernetes.io/name: opentelemetry-demo-imageprovider
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+spec:
+
+  # ------------------------------------------------------------
+  # TYPE
+  # ClusterIP — reachable only inside the cluster. This is not
+  # a LoadBalancer and does not create an AWS NLB/ALB.
+  # ------------------------------------------------------------
+  type: ClusterIP
+
+  # ------------------------------------------------------------
+  # PORTS
+  # 8081 → targetPort 8081 (IMAGE_PROVIDER_PORT in deploy.yaml).
+  # ------------------------------------------------------------
+  ports:
+    - port: 8081
+      name: tcp-service
+      targetPort: 8081
+
+  # ------------------------------------------------------------
+  # SELECTOR
+  # Routes traffic to pods with this label (the imageprovider
+  # Deployment).
+  # ------------------------------------------------------------
+  selector:
+    opentelemetry.io/name: opentelemetry-demo-imageprovider

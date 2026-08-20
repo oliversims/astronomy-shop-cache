@@ -1,0 +1,132 @@
+---
+# ============================================================
+# Deployment — Valkey
+#
+# Redis-compatible in-memory cache for the cart service in the
+# OpenTelemetry demo shop. There is no PersistentVolumeClaim —
+# cart data is lost if this pod restarts (demo only).
+#
+# It works together with:
+#   svc.yaml → ClusterIP other pods call on port 6379
+#   kubernetes/serviceaccount.yaml → shared ServiceAccount
+#   kubernetes/cart/deploy.yaml → stores cart contents here
+# ============================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opentelemetry-demo-valkey
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-valkey
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: valkey
+    app.kubernetes.io/name: opentelemetry-demo-valkey
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+spec:
+
+  # ------------------------------------------------------------
+  # REPLICAS
+  # One replica — demo default. A single Valkey process.
+  # ------------------------------------------------------------
+  replicas: 1
+
+  # ------------------------------------------------------------
+  # REVISION HISTORY
+  # Keep up to 10 old ReplicaSets so you can roll back a deploy.
+  # ------------------------------------------------------------
+  revisionHistoryLimit: 10
+
+  # ------------------------------------------------------------
+  # SELECTOR
+  # Must match the pod template labels below so this Deployment
+  # owns the right pods. The Service uses the same label.
+  # ------------------------------------------------------------
+  selector:
+    matchLabels:
+      opentelemetry.io/name: opentelemetry-demo-valkey
+  template:
+    metadata:
+      labels:
+        opentelemetry.io/name: opentelemetry-demo-valkey
+        app.kubernetes.io/instance: opentelemetry-demo
+        app.kubernetes.io/component: valkey
+        app.kubernetes.io/name: opentelemetry-demo-valkey
+    spec:
+
+      # ------------------------------------------------------------
+      # SERVICE ACCOUNT
+      # Shared identity for demo pods. Defined in
+      # kubernetes/serviceaccount.yaml (name: opentelemetry-demo).
+      # ------------------------------------------------------------
+      serviceAccountName: opentelemetry-demo
+      containers:
+        - name: valkey
+
+          # ----------------------------------------------------------
+          # IMAGE
+          # Valkey 7.2 Alpine (linux/amd64) on GHCR.
+          # IfNotPresent: pull once, then reuse the image on the node.
+          # ----------------------------------------------------------
+          image: 'ghcr.io/oliversims/valkey:7.2-alpine'
+          imagePullPolicy: IfNotPresent
+
+          # ----------------------------------------------------------
+          # PORTS
+          # Process listens on 6379 (named "valkey"). The ClusterIP
+          # in svc.yaml forwards to this containerPort.
+          # ----------------------------------------------------------
+          ports:
+            - containerPort: 6379
+              name: valkey
+
+          # ----------------------------------------------------------
+          # ENVIRONMENT
+          # OTEL_* labels this process for the demo collector
+          # opentelemetry-demo-otelcol (OpenTelemetry Collector). fieldRef (Downward API) sets
+          # OTEL_SERVICE_NAME from the pod label
+          # app.kubernetes.io/component → "valkey".
+          # There is no OTEL_EXPORTER_OTLP_ENDPOINT in this file.
+          # ----------------------------------------------------------
+          env:
+            - name: OTEL_SERVICE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.labels['app.kubernetes.io/component']
+            - name: OTEL_COLLECTOR_NAME
+              value: 'opentelemetry-demo-otelcol'
+            - name: OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+              value: cumulative
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.name=$(OTEL_SERVICE_NAME),service.namespace=opentelemetry-demo,service.version=1.12.0
+
+          # ----------------------------------------------------------
+          # RESOURCES
+          # Memory cap only — 20Mi. No CPU request or limit is set.
+          # ----------------------------------------------------------
+          resources:
+            limits:
+              memory: 64Mi
+
+          # ----------------------------------------------------------
+          # SECURITY CONTEXT
+          # Run as UID 999 / GID 1000, non-root (Valkey image user).
+          # ----------------------------------------------------------
+          securityContext:
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 999
+
+          # ----------------------------------------------------------
+          # VOLUME MOUNTS
+          # Unused Helm leftover — this container mounts nothing.
+          # No PVC; in-memory data does not survive pod restarts.
+          # ----------------------------------------------------------
+          volumeMounts:
+
+      # ------------------------------------------------------------
+      # VOLUMES
+      # Unused Helm leftover — no volumes are defined.
+      # ------------------------------------------------------------
+      volumes:

@@ -1,0 +1,157 @@
+---
+# ============================================================
+# Deployment — Cart Service
+#
+# Shopping cart for the OpenTelemetry demo shop. Cart contents
+# are stored in Valkey (Redis-compatible) at VALKEY_ADDR, not in
+# the pod itself. Feature flags come from flagd. This is a .NET
+# service (ASPNETCORE_URLS binds Kestrel to CART_SERVICE_PORT).
+#
+# It works together with:
+#   svc.yaml → ClusterIP checkout/frontend call on port 8080
+#   kubernetes/valkey → cart data store (waited on by initContainer)
+#   kubernetes/flagd → feature-flag server this pod queries
+#   kubernetes/serviceaccount.yaml → shared ServiceAccount
+# ============================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opentelemetry-demo-cartservice
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-cartservice
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: cartservice
+    app.kubernetes.io/name: opentelemetry-demo-cartservice
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+spec:
+
+  # ------------------------------------------------------------
+  # REPLICAS
+  # One replica — demo default. This project does not define an
+  # HPA, so the count stays at 1 unless you change it here.
+  # ------------------------------------------------------------
+  replicas: 1
+
+  # ------------------------------------------------------------
+  # REVISION HISTORY
+  # Keep up to 10 old ReplicaSets so you can roll back a deploy.
+  # ------------------------------------------------------------
+  revisionHistoryLimit: 10
+
+  # ------------------------------------------------------------
+  # SELECTOR
+  # Must match the pod template labels below so this Deployment
+  # owns the right pods. The Service uses the same label.
+  # ------------------------------------------------------------
+  selector:
+    matchLabels:
+      opentelemetry.io/name: opentelemetry-demo-cartservice
+  template:
+    metadata:
+      labels:
+        opentelemetry.io/name: opentelemetry-demo-cartservice
+        app.kubernetes.io/instance: opentelemetry-demo
+        app.kubernetes.io/component: cartservice
+        app.kubernetes.io/name: opentelemetry-demo-cartservice
+    spec:
+
+      # ------------------------------------------------------------
+      # SERVICE ACCOUNT
+      # Shared identity for demo pods. Defined in
+      # kubernetes/serviceaccount.yaml (name: opentelemetry-demo).
+      # ------------------------------------------------------------
+      serviceAccountName: opentelemetry-demo
+      containers:
+        - name: cartservice
+
+          # ----------------------------------------------------------
+          # IMAGE
+          # Official OpenTelemetry demo image for this service.
+          # IfNotPresent: reuse the image if the node already has it;
+          # only pull from ghcr.io when it is missing.
+          # ----------------------------------------------------------
+          image: 'ghcr.io/oliversims/otel-demo:1.12.0-cartservice'
+          imagePullPolicy: IfNotPresent
+
+          # ----------------------------------------------------------
+          # PORTS
+          # Process listens on 8080 (named "service"). The ClusterIP
+          # in svc.yaml forwards to this containerPort.
+          # ----------------------------------------------------------
+          ports:
+            - containerPort: 8080
+              name: service
+
+          # ----------------------------------------------------------
+          # ENVIRONMENT
+          # OTEL_* sends traces and metrics to the demo collector
+          # opentelemetry-demo-otelcol (OpenTelemetry Collector). fieldRef sets
+          # OTEL_SERVICE_NAME from the pod label
+          # app.kubernetes.io/component → "cartservice".
+          # Port 4317 is OTLP gRPC.
+          # ASPNETCORE_URLS tells Kestrel to listen on that port.
+          # VALKEY_ADDR is the in-cluster Valkey ClusterIP:6379.
+          # FLAGD_* points at the demo feature-flag server.
+          # ----------------------------------------------------------
+          env:
+            - name: OTEL_SERVICE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.labels['app.kubernetes.io/component']
+            - name: OTEL_COLLECTOR_NAME
+              value: 'opentelemetry-demo-otelcol'
+            - name: OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+              value: cumulative
+            - name: CART_SERVICE_PORT
+              value: "8080"
+            - name: ASPNETCORE_URLS
+              value: http://*:$(CART_SERVICE_PORT)
+            - name: VALKEY_ADDR
+              value: 'opentelemetry-demo-valkey:6379'
+            - name: FLAGD_HOST
+              value: 'opentelemetry-demo-flagd'
+            - name: FLAGD_PORT
+              value: "8013"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://$(OTEL_COLLECTOR_NAME):4317
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.name=$(OTEL_SERVICE_NAME),service.namespace=opentelemetry-demo,service.version=1.12.0
+
+          # ----------------------------------------------------------
+          # RESOURCES
+          # Memory cap only — 160Mi. No CPU request or limit is set.
+          # ----------------------------------------------------------
+          resources:
+            limits:
+              memory: 160Mi
+
+          # ----------------------------------------------------------
+          # VOLUME MOUNTS
+          # Unused Helm leftover — this container mounts nothing.
+          # ----------------------------------------------------------
+          volumeMounts:
+
+      # ------------------------------------------------------------
+      # INIT CONTAINER
+      # wait-for-valkey: busybox loops with nc until Valkey accepts
+      # TCP on opentelemetry-demo-valkey:6379. The cart container
+      # does not start until this succeeds, so it does not crash
+      # on a missing store.
+      # ------------------------------------------------------------
+      initContainers:
+        - command:
+          - sh
+          - -c
+          - until nc -z -v -w30 opentelemetry-demo-valkey 6379; do echo waiting
+            for valkey; sleep 2; done;
+          image: 'ghcr.io/oliversims/busybox:1.36'
+          name: wait-for-valkey
+
+      # ------------------------------------------------------------
+      # VOLUMES
+      # Unused Helm leftover — no volumes are defined.
+      # ------------------------------------------------------------
+      volumes:

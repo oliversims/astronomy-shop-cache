@@ -1,0 +1,23 @@
+Quote
+=====
+
+What it does
+------------
+Answers "how much does it cost to ship this package?" Shipping
+asks quote; shoppers never call quote themselves. Quote does not
+talk to the website or to checkout directly.
+
+
+Related services
+----------------
+Called by: shipping only.
+
+Shipping then answers frontend and checkout with that price.
+
+Also sends telemetry to otelcol (OpenTelemetry Collector).
+
+
+Files
+-----
+  deploy.yaml
+  svc.yaml     ClusterIP on 8080

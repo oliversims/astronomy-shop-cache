@@ -1,0 +1,49 @@
+---
+# ============================================================
+# Service — Checkout Service
+#
+# Stable in-cluster DNS name for the checkout Deployment. The
+# frontend calls this ClusterIP to place an order. ClusterIP is
+# reachable only inside the cluster — this is not an AWS load
+# balancer or Ingress.
+#
+# It works together with:
+#   deploy.yaml → pods selected by opentelemetry.io/name
+# ============================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: opentelemetry-demo-checkoutservice
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-checkoutservice
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: checkoutservice
+    app.kubernetes.io/name: opentelemetry-demo-checkoutservice
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+spec:
+
+  # ------------------------------------------------------------
+  # TYPE
+  # ClusterIP: virtual IP for in-cluster traffic only.
+  # ------------------------------------------------------------
+  type: ClusterIP
+
+  # ------------------------------------------------------------
+  # PORTS
+  # Service port 8080 → pod targetPort 8080 (containerPort in
+  # deploy.yaml). Name tcp-service is the Helm chart's port name.
+  # ------------------------------------------------------------
+  ports:
+    - port: 8080
+      name: tcp-service
+      targetPort: 8080
+
+  # ------------------------------------------------------------
+  # SELECTOR
+  # Must match the Deployment pod template labels so endpoints
+  # point at checkoutservice pods.
+  # ------------------------------------------------------------
+  selector:
+    opentelemetry.io/name: opentelemetry-demo-checkoutservice

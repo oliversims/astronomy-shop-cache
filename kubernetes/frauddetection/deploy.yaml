@@ -1,0 +1,124 @@
+---
+# ============================================================
+# Deployment — Fraud Detection Service
+#
+# Kafka consumer that inspects order traffic for the demo shop.
+# Feature flags from flagd can change its behavior. Like
+# accounting, it has no HTTP Service in this folder and the
+# container declares no ports — it only consumes Kafka.
+#
+# It works together with:
+#   kafka/svc.yaml        → ClusterIP opentelemetry-demo-kafka:9092
+#   flagd/svc.yaml        → ClusterIP flagd API on :8013
+#   otelcol (OpenTelemetry Collector)               → traces/metrics over OTLP HTTP :4318
+#   serviceaccount.yaml   → shared identity opentelemetry-demo
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opentelemetry-demo-frauddetectionservice
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-frauddetectionservice
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: frauddetectionservice
+    app.kubernetes.io/name: opentelemetry-demo-frauddetectionservice
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+spec:
+
+  # ------------------------------------------------------------
+  # REPLICAS
+  # Demo default: one consumer. No HPA in this project.
+  # ------------------------------------------------------------
+  replicas: 1
+
+  # ------------------------------------------------------------
+  # REVISION HISTORY
+  # Retain 10 old ReplicaSets for kubectl rollout undo.
+  # ------------------------------------------------------------
+  revisionHistoryLimit: 10
+
+  # ------------------------------------------------------------
+  # SELECTOR
+  # Owns pods with this label. Must match the template labels.
+  # ------------------------------------------------------------
+  selector:
+    matchLabels:
+      opentelemetry.io/name: opentelemetry-demo-frauddetectionservice
+  template:
+    metadata:
+      labels:
+        opentelemetry.io/name: opentelemetry-demo-frauddetectionservice
+        app.kubernetes.io/instance: opentelemetry-demo
+        app.kubernetes.io/component: frauddetectionservice
+        app.kubernetes.io/name: opentelemetry-demo-frauddetectionservice
+    spec:
+
+      # ------------------------------------------------------------
+      # SERVICE ACCOUNT
+      # Shared identity for demo pods. Defined in
+      # kubernetes/serviceaccount.yaml (name: opentelemetry-demo).
+      # ------------------------------------------------------------
+      serviceAccountName: opentelemetry-demo
+      containers:
+        - name: frauddetectionservice
+          image: 'ghcr.io/oliversims/otel-demo:1.12.0-frauddetectionservice'
+
+          # ----------------------------------------------------
+          # IMAGE PULL POLICY: IfNotPresent
+          # Reuse the image if it is already cached on the node.
+          # ----------------------------------------------------
+          imagePullPolicy: IfNotPresent
+
+          # ----------------------------------------------------
+          # ENVIRONMENT
+          # Kafka + flagd only. No listen port — not an HTTP app.
+          # ----------------------------------------------------
+          env:
+            - name: OTEL_SERVICE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  # Runtime service name = "frauddetectionservice".
+                  fieldPath: metadata.labels['app.kubernetes.io/component']
+            - name: OTEL_COLLECTOR_NAME
+              value: 'opentelemetry-demo-otelcol'
+            - name: OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+              value: cumulative
+            - name: KAFKA_SERVICE_ADDR
+              # In-cluster Kafka ClusterIP, not a public broker.
+              value: 'opentelemetry-demo-kafka:9092'
+            - name: FLAGD_HOST
+              # OpenFeature flagd Service (ClusterIP), not the UI.
+              value: 'opentelemetry-demo-flagd'
+            - name: FLAGD_PORT
+              value: "8013"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              # OTLP HTTP (4318), not gRPC 4317.
+              value: http://$(OTEL_COLLECTOR_NAME):4318
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.name=$(OTEL_SERVICE_NAME),service.namespace=opentelemetry-demo,service.version=1.12.0
+          resources:
+            limits:
+              # Larger than accounting (Kotlin/JVM consumer).
+              memory: 300Mi
+
+          # Unused Helm leftover — this consumer mounts no volumes.
+          volumeMounts:
+
+      # ----------------------------------------------------------
+      # INIT CONTAINER — wait-for-kafka
+      # Blocks until Kafka accepts TCP on 9092 so the consumer
+      # does not start before the broker is ready.
+      # ----------------------------------------------------------
+      initContainers:
+        - command:
+          - sh
+          - -c
+          - until nc -z -v -w30 opentelemetry-demo-kafka 9092; do echo waiting
+            for kafka; sleep 2; done;
+          image: 'ghcr.io/oliversims/busybox:1.36'
+          name: wait-for-kafka
+
+      # Unused Helm leftover — no volumes are defined for this pod.
+      volumes:

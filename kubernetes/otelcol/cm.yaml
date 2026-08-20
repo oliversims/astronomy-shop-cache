@@ -1,0 +1,128 @@
+---
+# ============================================================
+# ConfigMap — OpenTelemetry Collector (otelcol)
+#
+# otelcol is short for OpenTelemetry Collector.
+#
+# Plain-text collector config. Not a Secret — there are no
+# passwords here. The Collector pod mounts this file and
+# starts with --config pointing at it.
+#
+# Shop pods send OTLP here.
+# Traces go to Jaeger (opentelemetry-demo-jaeger-query:4317).
+# Metrics go to Prometheus in namespace monitoring
+# (kube-prometheus-stack-prometheus:9090/api/v1/otlp).
+# Logs go to OpenSearch (opentelemetry-demo-opensearch:9200, index otel).
+# All three are also printed in Collector logs (debug).
+#
+# It works together with:
+#   otelcol/deploy.yaml → mounts this file
+#   otelcol/svc.yaml    → shop pods call :4317 and :4318
+#   jaeger/svc.yaml     → traces exported to :4317
+#   opensearch/svc.yaml → logs exported to :9200
+#   07-monitoring       → Prometheus OTLP receiver
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opentelemetry-demo-otelcol-config
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-otelcol
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: otelcol
+    app.kubernetes.io/name: opentelemetry-demo-otelcol
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+
+# ------------------------------------------------------------
+# DATA
+# Key otelcol-config.yml is the Collector YAML. Listen on all
+# interfaces (0.0.0.0) so other pods can reach this container.
+# Do not copy src/otel-collector/otelcol-config.yml as-is —
+# that file uses Docker DNS and docker_stats/hostmetrics.
+# ------------------------------------------------------------
+data:
+  otelcol-config.yml: |
+    # ============================================================
+    # RECEIVERS — how shop pods send data IN to otelcol
+    # Shared. Not Jaeger, not OpenSearch, not Prometheus.
+    # ============================================================
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+            cors:
+              allowed_origins:
+                - "http://*"
+                - "https://*"
+
+    # ============================================================
+    # PROCESSORS — batch before sending out
+    # Shared. Used by traces, metrics, and logs.
+    # ============================================================
+    processors:
+      batch:
+
+    # ============================================================
+    # EXPORTERS — where otelcol sends data OUT
+    # ============================================================
+    exporters:
+      # Collector's own log (every pipeline). Not a cabinet.
+      debug:
+        verbosity: basic
+
+      # JAEGER — traces (trips / timelines)
+      # Kubernetes Service: opentelemetry-demo-jaeger-query :4317
+      otlp/jaeger:
+        endpoint: opentelemetry-demo-jaeger-query:4317
+        tls:
+          insecure: true
+
+      # PROMETHEUS — metrics (numbers). Namespace monitoring.
+      # Not Jaeger. Not OpenSearch.
+      otlphttp/prometheus:
+        endpoint: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090/api/v1/otlp
+        tls:
+          insecure: true
+
+      # OPENSEARCH — logs (diary lines)
+      # Kubernetes Service: opentelemetry-demo-opensearch :9200
+      # Index name: otel
+      opensearch:
+        logs_index: otel
+        http:
+          endpoint: http://opentelemetry-demo-opensearch:9200
+          tls:
+            insecure: true
+
+    # ============================================================
+    # EXTENSIONS — health for Kubernetes probes. Shared.
+    # ============================================================
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    # ============================================================
+    # PIPELINES — which exporter each kind of note uses
+    # ============================================================
+    service:
+      extensions: [health_check]
+      pipelines:
+        # JAEGER gets traces (plus debug)
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [otlp/jaeger, debug]
+        # PROMETHEUS gets metrics (plus debug)
+        metrics:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [otlphttp/prometheus, debug]
+        # OPENSEARCH gets logs (plus debug)
+        logs:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [opensearch, debug]

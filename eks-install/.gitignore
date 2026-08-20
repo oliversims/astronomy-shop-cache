@@ -1,0 +1,8 @@
+# Local and remote Terraform working files (all stacks).
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+*.tfstate
+*.tfstate.*
+crash.log

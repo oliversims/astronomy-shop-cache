@@ -1,0 +1,139 @@
+---
+# ============================================================
+# Deployment — Ad Service
+#
+# Serves ads to the frontend in the OpenTelemetry demo shop.
+# Feature flags come from flagd (FLAGD_HOST / FLAGD_PORT) so the
+# demo can change ad behavior without rebuilding the image.
+#
+# It works together with:
+#   svc.yaml → ClusterIP the frontend calls on port 8080
+#   kubernetes/serviceaccount.yaml → shared ServiceAccount
+#   kubernetes/flagd → feature-flag server this pod queries
+#   kubernetes/frontend/deploy.yaml → caller that displays ads
+# ============================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opentelemetry-demo-adservice
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-adservice
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: adservice
+    app.kubernetes.io/name: opentelemetry-demo-adservice
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+spec:
+
+  # ------------------------------------------------------------
+  # REPLICAS
+  # One replica — demo default. This project does not define an
+  # HPA, so the count stays at 1 unless you change it here.
+  # ------------------------------------------------------------
+  replicas: 1
+
+  # ------------------------------------------------------------
+  # REVISION HISTORY
+  # Keep up to 10 old ReplicaSets so you can roll back a deploy.
+  # ------------------------------------------------------------
+  revisionHistoryLimit: 10
+
+  # ------------------------------------------------------------
+  # SELECTOR
+  # Must match the pod template labels below so this Deployment
+  # owns the right pods. The Service uses the same label.
+  # ------------------------------------------------------------
+  selector:
+    matchLabels:
+      opentelemetry.io/name: opentelemetry-demo-adservice
+  template:
+    metadata:
+      labels:
+        opentelemetry.io/name: opentelemetry-demo-adservice
+        app.kubernetes.io/instance: opentelemetry-demo
+        app.kubernetes.io/component: adservice
+        app.kubernetes.io/name: opentelemetry-demo-adservice
+    spec:
+
+      # ------------------------------------------------------------
+      # SERVICE ACCOUNT
+      # Shared identity for demo pods. Defined in
+      # kubernetes/serviceaccount.yaml (name: opentelemetry-demo).
+      # ------------------------------------------------------------
+      serviceAccountName: opentelemetry-demo
+      containers:
+        - name: adservice
+
+          # ----------------------------------------------------------
+          # IMAGE
+          # Official OpenTelemetry demo image for this service.
+          # IfNotPresent: reuse the image if the node already has it;
+          # only pull from ghcr.io when it is missing.
+          # ----------------------------------------------------------
+          image: 'ghcr.io/oliversims/otel-demo:1.12.0-adservice'
+          imagePullPolicy: IfNotPresent
+
+          # ----------------------------------------------------------
+          # PORTS
+          # Process listens on 8080 (named "service"). The ClusterIP
+          # in svc.yaml forwards to this containerPort.
+          # ----------------------------------------------------------
+          ports:
+            - containerPort: 8080
+              name: service
+
+          # ----------------------------------------------------------
+          # ENVIRONMENT
+          # OTEL_* sends traces, metrics, and logs to the demo
+          # collector opentelemetry-demo-otelcol (OpenTelemetry Collector). fieldRef sets
+          # OTEL_SERVICE_NAME from the pod label
+          # app.kubernetes.io/component → "adservice".
+          # Port 4318 is OTLP HTTP (this service does not use 4317).
+          # OTEL_LOGS_EXPORTER=otlp exports logs over that same OTLP
+          # endpoint. FLAGD_* points at the demo feature-flag server.
+          # ----------------------------------------------------------
+          env:
+            - name: OTEL_SERVICE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.labels['app.kubernetes.io/component']
+            - name: OTEL_COLLECTOR_NAME
+              value: 'opentelemetry-demo-otelcol'
+            - name: OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+              value: cumulative
+            - name: AD_SERVICE_PORT
+              value: "8080"
+            - name: FLAGD_HOST
+              value: 'opentelemetry-demo-flagd'
+            - name: FLAGD_PORT
+              value: "8013"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://$(OTEL_COLLECTOR_NAME):4318
+            - name: OTEL_LOGS_EXPORTER
+              value: otlp
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.name=$(OTEL_SERVICE_NAME),service.namespace=opentelemetry-demo,service.version=1.12.0
+
+          # ----------------------------------------------------------
+          # RESOURCES
+          # Memory cap only — 300Mi (larger than most demo services
+          # because the JVM-based ad service needs more heap).
+          # No CPU request or limit is set.
+          # ----------------------------------------------------------
+          resources:
+            limits:
+              memory: 300Mi
+
+          # ----------------------------------------------------------
+          # VOLUME MOUNTS
+          # Unused Helm leftover — this container mounts nothing.
+          # ----------------------------------------------------------
+          volumeMounts:
+
+      # ------------------------------------------------------------
+      # VOLUMES
+      # Unused Helm leftover — no volumes are defined.
+      # ------------------------------------------------------------
+      volumes:

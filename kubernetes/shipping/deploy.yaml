@@ -1,0 +1,136 @@
+---
+# ============================================================
+# Deployment — Shipping Service
+#
+# Returns shipping estimates in the OpenTelemetry demo shop.
+# It calls the quote service at QUOTE_SERVICE_ADDR
+# (http://opentelemetry-demo-quoteservice:8080) for prices.
+# Checkout and the frontend call this service.
+#
+# It works together with:
+#   svc.yaml → ClusterIP callers use on port 8080
+#   kubernetes/serviceaccount.yaml → shared ServiceAccount
+#   kubernetes/quote/deploy.yaml → quote prices this pod requests
+#   kubernetes/checkout/deploy.yaml → caller (SHIPPING_SERVICE_ADDR)
+#   kubernetes/frontend/deploy.yaml → caller (SHIPPING_SERVICE_ADDR)
+# ============================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opentelemetry-demo-shippingservice
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-shippingservice
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: shippingservice
+    app.kubernetes.io/name: opentelemetry-demo-shippingservice
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+spec:
+
+  # ------------------------------------------------------------
+  # REPLICAS
+  # One replica — demo default. This project does not define an
+  # HPA, so the count stays at 1 unless you change it here.
+  # ------------------------------------------------------------
+  replicas: 1
+
+  # ------------------------------------------------------------
+  # REVISION HISTORY
+  # Keep up to 10 old ReplicaSets so you can roll back a deploy.
+  # ------------------------------------------------------------
+  revisionHistoryLimit: 10
+
+  # ------------------------------------------------------------
+  # SELECTOR
+  # Must match the pod template labels below so this Deployment
+  # owns the right pods. The Service uses the same label.
+  # ------------------------------------------------------------
+  selector:
+    matchLabels:
+      opentelemetry.io/name: opentelemetry-demo-shippingservice
+  template:
+    metadata:
+      labels:
+        opentelemetry.io/name: opentelemetry-demo-shippingservice
+        app.kubernetes.io/instance: opentelemetry-demo
+        app.kubernetes.io/component: shippingservice
+        app.kubernetes.io/name: opentelemetry-demo-shippingservice
+    spec:
+
+      # ------------------------------------------------------------
+      # SERVICE ACCOUNT
+      # Shared identity for demo pods. Defined in
+      # kubernetes/serviceaccount.yaml (name: opentelemetry-demo).
+      # ------------------------------------------------------------
+      serviceAccountName: opentelemetry-demo
+      containers:
+        - name: shippingservice
+
+          # ----------------------------------------------------------
+          # IMAGE
+          # Official OpenTelemetry demo image for this service.
+          # IfNotPresent: reuse the image if the node already has it;
+          # only pull from ghcr.io when it is missing.
+          # ----------------------------------------------------------
+          image: 'ghcr.io/oliversims/otel-demo:1.12.0-shippingservice'
+          imagePullPolicy: IfNotPresent
+
+          # ----------------------------------------------------------
+          # PORTS
+          # Process listens on 8080 (named "service"). The ClusterIP
+          # in svc.yaml forwards to this containerPort.
+          # ----------------------------------------------------------
+          ports:
+            - containerPort: 8080
+              name: service
+
+          # ----------------------------------------------------------
+          # ENVIRONMENT
+          # OTEL_* sends traces and metrics to the demo collector
+          # opentelemetry-demo-otelcol (OpenTelemetry Collector). fieldRef (Downward API) sets
+          # OTEL_SERVICE_NAME from the pod label
+          # app.kubernetes.io/component → "shippingservice".
+          # $(OTEL_COLLECTOR_NAME) is expanded by kubelet into other
+          # env values. Port 4317 is OTLP gRPC.
+          # QUOTE_SERVICE_ADDR is the HTTP URL of the quote ClusterIP
+          # (quoteservice listens on 8080).
+          # ----------------------------------------------------------
+          env:
+            - name: OTEL_SERVICE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.labels['app.kubernetes.io/component']
+            - name: OTEL_COLLECTOR_NAME
+              value: 'opentelemetry-demo-otelcol'
+            - name: OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+              value: cumulative
+            - name: SHIPPING_SERVICE_PORT
+              value: "8080"
+            - name: QUOTE_SERVICE_ADDR
+              value: http://opentelemetry-demo-quoteservice:8080
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://$(OTEL_COLLECTOR_NAME):4317
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.name=$(OTEL_SERVICE_NAME),service.namespace=opentelemetry-demo,service.version=1.12.0
+
+          # ----------------------------------------------------------
+          # RESOURCES
+          # Memory cap only — 20Mi. No CPU request or limit is set.
+          # ----------------------------------------------------------
+          resources:
+            limits:
+              memory: 20Mi
+
+          # ----------------------------------------------------------
+          # VOLUME MOUNTS
+          # Unused Helm leftover — this container mounts nothing.
+          # ----------------------------------------------------------
+          volumeMounts:
+
+      # ------------------------------------------------------------
+      # VOLUMES
+      # Unused Helm leftover — no volumes are defined.
+      # ------------------------------------------------------------
+      volumes:

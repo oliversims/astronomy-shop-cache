@@ -1,0 +1,150 @@
+---
+# ============================================================
+# ConfigMap — flagd demo flags
+#
+# Non-secret feature-flag definitions for OpenFeature flagd.
+# A ConfigMap stores plain-text configuration. A Secret would
+# be for credentials (passwords, tokens). This JSON is not
+# secret — it is the demo's intentional failure switches.
+#
+# data.demo.flagd.json flags (all defaultVariant: off):
+#   productCatalogFailure
+#   recommendationServiceCacheFailure
+#   adServiceManualGc
+#   adServiceHighCpu
+#   adServiceFailure
+#   kafkaQueueProblems
+#   cartServiceFailure
+#   paymentServiceFailure
+#   paymentServiceUnreachable
+#   loadgeneratorFloodHomepage
+#   imageSlowLoad
+#
+# It works together with:
+#   flagd/deploy.yaml → init-config copies this file into emptyDir
+#   flagd/svc.yaml    → other pods evaluate flags on :8013
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opentelemetry-demo-flagd-config
+  labels:
+    opentelemetry.io/name: opentelemetry-demo
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/name: opentelemetry-demo
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+
+# ------------------------------------------------------------
+# DATA
+# Key demo.flagd.json is a literal JSON string (the | block).
+# Do not put YAML comments inside the JSON — they would break
+# the file flagd reads.
+# ------------------------------------------------------------
+data:
+  demo.flagd.json: |
+    {
+      "$schema": "https://flagd.dev/schema/v0/flags.json",
+      "flags": {
+        "productCatalogFailure": {
+          "description": "Fail product catalog service on a specific product",
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "off"
+        },
+        "recommendationServiceCacheFailure": {
+          "description": "Fail recommendation service cache",
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "off"
+        },
+        "adServiceManualGc": {
+          "description": "Triggers full manual garbage collections in the ad service",
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "off"
+        },
+        "adServiceHighCpu": {
+          "description": "Triggers high cpu load in the ad service",
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "off"
+        },
+        "adServiceFailure": {
+          "description": "Fail ad service",
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "off"
+        },
+        "kafkaQueueProblems": {
+          "description": "Overloads Kafka queue while simultaneously introducing a consumer side delay leading to a lag spike",
+          "state": "ENABLED",
+          "variants": {
+            "on": 100,
+            "off": 0
+          },
+          "defaultVariant": "off"
+        },
+        "cartServiceFailure": {
+          "description": "Fail cart service",
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "off"
+        },
+        "paymentServiceFailure": {
+          "description": "Fail payment service charge requests",
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "off"
+        },
+        "paymentServiceUnreachable": {
+          "description": "Payment service is unavailable",
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "off"
+        },
+        "loadgeneratorFloodHomepage": {
+          "description": "Flood the frontend with a large amount of requests.",
+          "state": "ENABLED",
+          "variants": {
+            "on": 100,
+            "off": 0
+          },
+          "defaultVariant": "off"
+        },
+        "imageSlowLoad": {
+          "description": "slow loading images in the frontend",
+          "state": "ENABLED",
+          "variants": {
+            "10sec": 10000,
+            "5sec": 5000,
+            "off": 0
+          },
+          "defaultVariant": "off"
+        }
+      }
+    }

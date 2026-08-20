@@ -1,0 +1,35 @@
+OpenSearch
+==========
+
+What it does
+------------
+OpenSearch is the cabinet for logs. A log is a line of text from a
+process (example: payment: card declined for order abc-123). It is
+not a trace (Jaeger) and not a metric (Prometheus).
+
+Shop pods do not send logs here themselves. They send OTLP to
+otelcol (OpenTelemetry Collector). otelcol forwards logs to this
+Service on port 9200, index name "otel".
+
+Single-node demo. HTTP, no login (security plugin off). Data is
+on emptyDir — restart the pod and old logs are gone.
+
+There is no public OpenSearch hostname. You read logs in Grafana
+(https://grafana.simsoliver.com), datasource OpenSearch, after
+07-monitoring installs the plugin and points at this Service:
+
+  http://opentelemetry-demo-opensearch.otel-demo.svc.cluster.local:9200
+
+
+Related services
+----------------
+otelcol sends logs to opentelemetry-demo-opensearch:9200.
+Grafana (namespace monitoring) reads this Service (FQDN above).
+
+Lives in namespace otel-demo (same as the rest of the shop).
+
+
+Files
+-----
+  deploy.yaml  one OpenSearch pod
+  svc.yaml     ClusterIP named opentelemetry-demo-opensearch :9200

@@ -1,0 +1,133 @@
+---
+# ============================================================
+# Deployment — OpenSearch
+#
+# The cabinet for logs. Shop pods do not talk to OpenSearch
+# directly. otelcol (OpenTelemetry Collector) sends logs here
+# over HTTP :9200 into index "otel".
+#
+# Single-node demo. Security plugin off (plain HTTP). Data is
+# on emptyDir — restart this pod and old logs are gone.
+#
+# It works together with:
+#   opensearch/svc.yaml            → ClusterIP :9200
+#   otelcol/cm.yaml                → logs exporter
+#   kubernetes/serviceaccount.yaml → shared identity
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opentelemetry-demo-opensearch
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-opensearch
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: opensearch
+    app.kubernetes.io/name: opentelemetry-demo-opensearch
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+spec:
+
+  # ------------------------------------------------------------
+  # REPLICAS
+  # One replica — demo default. Data lives in this pod only.
+  # ------------------------------------------------------------
+  replicas: 1
+
+  # ------------------------------------------------------------
+  # REVISION HISTORY
+  # Keep 10 old ReplicaSets for kubectl rollout undo.
+  # ------------------------------------------------------------
+  revisionHistoryLimit: 10
+
+  # ------------------------------------------------------------
+  # SELECTOR
+  # Owns pods with this label. Must match the template labels.
+  # ------------------------------------------------------------
+  selector:
+    matchLabels:
+      opentelemetry.io/name: opentelemetry-demo-opensearch
+  template:
+    metadata:
+      labels:
+        opentelemetry.io/name: opentelemetry-demo-opensearch
+        app.kubernetes.io/instance: opentelemetry-demo
+        app.kubernetes.io/component: opensearch
+        app.kubernetes.io/name: opentelemetry-demo-opensearch
+    spec:
+
+      serviceAccountName: opentelemetry-demo
+
+      # emptyDir is root-owned; fsGroup lets UID 1000 write data/.
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+
+      containers:
+        - name: opensearch
+
+          # ----------------------------------------------------------
+          # IMAGE
+          # Official OpenSearch (same tag as .env OPENSEARCH_IMAGE).
+          # Not the custom src/opensearch/Dockerfile (plugin strip).
+          # ----------------------------------------------------------
+          image: 'opensearchproject/opensearch:3.2.0'
+          imagePullPolicy: IfNotPresent
+
+          # ----------------------------------------------------------
+          # PORTS
+          # 9200 HTTP API — ClusterIP in svc.yaml.
+          # ----------------------------------------------------------
+          ports:
+            - containerPort: 9200
+              name: http
+
+          env:
+            - name: cluster.name
+              value: otel-demo
+            - name: node.name
+              value: otel-demo-opensearch
+            - name: discovery.type
+              value: single-node
+            - name: bootstrap.memory_lock
+              value: "false"
+            - name: DISABLE_INSTALL_DEMO_CONFIG
+              value: "true"
+            - name: DISABLE_SECURITY_PLUGIN
+              value: "true"
+            - name: OPENSEARCH_JAVA_OPTS
+              value: "-Xms512m -Xmx512m"
+
+          # ----------------------------------------------------------
+          # PROBES
+          # Cluster health on :9200. OpenSearch is slow to start.
+          # ----------------------------------------------------------
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: 9200
+            initialDelaySeconds: 40
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: 9200
+            initialDelaySeconds: 80
+            periodSeconds: 20
+
+          resources:
+            limits:
+              memory: 1280Mi
+
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/opensearch/data
+
+      volumes:
+        - name: data
+          emptyDir: {}

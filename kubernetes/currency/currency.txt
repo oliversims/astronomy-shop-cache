@@ -1,0 +1,23 @@
+Currency
+========
+
+What it does
+------------
+Converts money from one currency to another (for example USD to
+EUR). It does not charge cards or store orders. It only does the
+math so prices and charges use the right amount.
+
+
+Related services
+----------------
+Called by:
+  frontend   — show prices in the shopper's currency
+  checkout   — charge the correct amount at place-order
+
+Also sends telemetry to otelcol (OpenTelemetry Collector).
+
+
+Files
+-----
+  deploy.yaml
+  svc.yaml     ClusterIP on 8080

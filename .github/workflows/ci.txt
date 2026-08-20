@@ -1,0 +1,274 @@
+GitHub Actions — .github/workflows/ci.yaml
+==========================================
+
+This file is CI for ONE service: product-catalog (Go code under
+src/product-catalog). It does not build ads, cart, frontend, or
+the rest of the shop.
+
+GitHub reads this YAML on every matching event. You do not run
+it on your laptop. Open the repo → Actions → product-catalog-ci.
+
+It works together with:
+  src/product-catalog/            Go app + Dockerfile
+  kubernetes/productcatalog/deploy.yaml   image: line Argo CD deploys
+  argocd/application.yaml         Argo CD app watching kubernetes/
+  ghcr.io/oliversims/otel-demo    container registry (your GHCR)
+
+
+What the whole pipeline is for
+------------------------------
+
+Goal: a change to product-catalog source on main becomes a new
+container on GHCR, then a git commit that points the Deployment
+at that container. Argo CD sees the commit and rolls the pod on
+EKS. You never kubectl apply the shop yourself.
+
+  1. Developer changes src/product-catalog and merges to main
+  2. GitHub Actions builds/tests the Go app
+  3. GitHub Actions builds a linux/amd64 image and pushes GHCR
+  4. GitHub Actions commits the new image: tag into deploy.yaml
+  5. Argo CD syncs kubernetes/ from main
+  6. kubelet on EKS pulls the new tag and starts a new pod
+
+
+When the workflow runs (the "on:" block)
+----------------------------------------
+
+Three ways to start it. Not every way runs every job.
+
+A) pull_request targeting main
+   AND the PR touches src/product-catalog/** or this workflow file.
+
+   Jobs that run:  build, code-quality
+   Jobs skipped:   docker, updatek8s
+
+   Reason: a PR is not production yet. Do not push an image or
+   change main's Deployment until the change is merged.
+
+B) push to main
+   AND the commit touches src/product-catalog/**.
+
+   Jobs that run:  build, code-quality, docker, updatek8s
+
+   Changing only kubernetes/productcatalog/deploy.yaml does NOT
+   start this workflow. That is on purpose: the last job commits
+   that file, and we do not want CI to loop forever.
+
+   Changing only ci.yaml and pushing to main also does NOT start
+   the docker/update jobs (push paths are source-only). Use
+   workflow_dispatch if you want a full run without changing Go.
+
+C) workflow_dispatch
+   You click "Run workflow" in the Actions UI.
+
+   Same jobs as a push to main: build → docker → updatek8s.
+   Use this for a first test after linking the GHCR package.
+
+
+concurrency
+-----------
+
+If two runs start for the same git ref (same branch), the newer
+one cancels the older one. Stops a pile of overlapping image
+builds on a busy branch.
+
+
+permissions (workflow default)
+------------------------------
+
+contents: read
+
+Every job can clone the repo. Jobs that need more (write a
+package, push a commit) declare extra permissions locally.
+GITHUB_TOKEN is created by GitHub for that run. It is not your
+PAT. It expires when the job ends.
+
+
+Job 1 — build
+-------------
+
+Runner: a fresh Ubuntu VM (ubuntu-latest). GitHub Actions VMs
+are linux/amd64, same architecture as the EKS t3.medium nodes.
+
+Steps, in order:
+
+  1. actions/checkout@v4
+     Clones this repo at the commit that triggered the run.
+
+  2. actions/setup-go@v5
+     Installs Go 1.22. Caches modules using
+     src/product-catalog/go.sum so later runs are faster.
+
+  3. go mod download && go build
+     Compiles main.go to a binary named product-catalog-service.
+     That binary is thrown away with the VM. This step only
+     proves the code compiles. The real binary that runs in
+     Kubernetes is built inside Docker in the docker job.
+
+  4. go test ./...
+     Unit tests. If this fails, later jobs that need: build
+     never start, so a broken binary is not pushed to GHCR.
+
+This job does NOT talk to Docker or Kubernetes.
+
+
+Job 2 — code-quality
+--------------------
+
+Starts at the same time as build (no needs:). Own VM, own
+checkout, own Go install.
+
+  golangci-lint v1.55.2 in src/product-catalog
+
+Style / bug lint. A failure fails the workflow but does not
+block docker by itself (docker only needs: build). If you want
+lint to gate the image, add  needs: [build, code-quality]  on
+the docker job.
+
+
+Job 3 — docker  (push to main / Run workflow only)
+--------------------------------------------------
+
+Skipped on pull_request because of:
+
+  if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+
+needs: build — waits until compile + tests succeeded.
+
+Extra permission: packages: write  (push to GHCR).
+
+Steps:
+
+  1. checkout again (new VM; nothing is shared from build
+     except the "build passed" signal).
+
+  2. Image name (id: meta)
+     Builds a unique tag, for example:
+
+       ghcr.io/oliversims/otel-demo:1.12.0-productcatalogservice-1234567890
+
+     github.repository_owner is lowercased (GHCR requires
+     lowercase). github.run_id is unique per workflow run.
+
+     Why a new tag every time: Kubernetes imagePullPolicy is
+     IfNotPresent. If you overwrite the same tag with different
+     bits, a node may keep the old layers. A new tag cannot
+     collide with a cached digest. Same lesson as Valkey.
+
+     The image is stored in the existing otel-demo GHCR package
+     (many tags, one package). It is not a Docker Hub image.
+
+     The name is written to GITHUB_OUTPUT so the next job can
+     read it as needs.docker.outputs.image.
+
+  3. docker/setup-buildx-action
+     Buildx can target a platform. We need linux/amd64 so the
+     image runs on EKS, even if a future runner were ARM.
+
+  4. docker/login-action
+     Registry ghcr.io. Username = github.actor (the user or
+     bot that started the run). Password = GITHUB_TOKEN.
+
+     For this login to be allowed to push, the GHCR package
+     otel-demo must grant this repository write access:
+       GitHub → Packages → otel-demo → Package settings
+       → Manage Actions access → this repo, role Write.
+
+     The package should stay Public. EKS nodes have no GitHub
+     login. Private packages need an imagePullSecret.
+
+  5. docker/build-push-action
+     Context: src/product-catalog
+     Dockerfile: src/product-catalog/Dockerfile
+     platforms: linux/amd64
+     push: true
+     tags: the unique name from step 2
+
+     Multi-stage Dockerfile: compile Go in golang:1.22-alpine,
+     copy the binary into a small alpine image. That image is
+     what the cluster runs.
+
+
+Job 4 — updatek8s  (push to main / Run workflow only)
+-----------------------------------------------------
+
+Skipped on pull_request (same if: as docker).
+needs: docker — waits until the image exists on GHCR.
+
+Extra permission: contents: write  (git commit + push).
+
+This job does not talk to the cluster. It only changes git.
+Argo CD is what applies YAML to EKS.
+
+Steps:
+
+  1. checkout main (not the triggering SHA)
+     ref: main so the image tag is applied on top of the
+     latest default branch, not a stale commit.
+
+  2. sed on kubernetes/productcatalog/deploy.yaml
+     Replaces only the container image: line that looks like
+
+       image: 'ghcr.io/.../otel-demo:1.12.0-productcatalogservice...'
+
+     with the new unique tag. Comments are left alone.
+     grep prints the result so you can see it in the log.
+
+  3. git commit and git push origin HEAD:main
+     Author: github-actions[bot] (not a leftover tutorial name).
+     Message: ci: point product catalog at <image>
+
+     This is a normal push, not git push -f. Force-push would
+     rewrite main history.
+
+     If the file already has that tag, git diff --cached is
+     empty and the job exits 0 without a commit.
+
+After this push, Argo CD (application otel-demo, path
+kubernetes/, targetRevision main) sees deploy.yaml change and
+rolls opentelemetry-demo-productcatalogservice in namespace
+otel-demo.
+
+
+Why this commit does not start CI again
+---------------------------------------
+
+on.push.paths is only src/product-catalog/**.
+
+The bot commit touches kubernetes/productcatalog/deploy.yaml.
+That path is not in the filter, so GitHub does not start a new
+run. No loop.
+
+
+What this file does NOT do
+--------------------------
+
+  - It does not deploy the whole shop (only product-catalog).
+  - It does not run terraform / EKS / Argo CD install.
+  - It does not kubectl apply. Argo CD does that from git.
+  - It does not push to Docker Hub. No DOCKER_USERNAME secret.
+  - It does not overwrite tag 1.12.0-productcatalogservice.
+  - It does not force-push main.
+
+
+One-time GitHub setup
+---------------------
+
+  1. Packages → otel-demo → Package settings
+     → Manage Actions access → this repo → Write.
+
+  2. Keep otel-demo Public so EKS can pull.
+
+  3. Actions tab: product-catalog-ci should appear after this
+     file is on main. Use "Run workflow" for a first full run.
+
+
+How to watch a run
+------------------
+
+  GitHub → Actions → product-catalog-ci → the latest run.
+
+  Then on the cluster:
+
+    kubectl get pods -n otel-demo -l app.kubernetes.io/component=productcatalogservice
+    kubectl get application otel-demo -n argocd

@@ -1,0 +1,25 @@
+Payment
+=======
+
+What it does
+------------
+Charges the card when checkout places an order. It does not know
+the basket or the catalog; checkout already gathered that.
+
+flagd can fail charges (paymentServiceFailure) or make this
+service unreachable (paymentServiceUnreachable).
+
+
+Related services
+----------------
+Called by: checkout only
+
+Asks: flagd
+
+Also sends telemetry to otelcol (OpenTelemetry Collector).
+
+
+Files
+-----
+  deploy.yaml
+  svc.yaml     ClusterIP on 8080

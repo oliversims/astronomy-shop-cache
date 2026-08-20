@@ -1,0 +1,68 @@
+OpenTelemetry Collector (otelcol)
+=================================
+
+otelcol is short for OpenTelemetry Collector.
+
+What it does
+------------
+This is the mailbox for telemetry. Shop pods send traces, metrics,
+and logs here using OTLP (OpenTelemetry Protocol). Other pods already look up the name
+opentelemetry-demo-otelcol. You do not open this from a browser.
+
+Traces, metrics, and logs
+-------------------------
+Three kinds of notes. They are not the same.
+
+  Trace   one customer's trip through the shop (Place order → cart
+          → payment → Kafka). Each step is a span: who, what, when,
+          how long, success or error. All steps share one trace id,
+          like a tracking number. In Jaeger that shows as a timeline,
+          not a paragraph of English. Jaeger is in kubernetes/jaeger/.
+          otelcol forwards traces there (OTLP gRPC :4317).
+
+  Metric  a number over time, not one customer.
+          Examples: checkout_requests_total = 1840,
+          payment_latency_ms = 12. Prometheus stores those; Grafana
+          graphs them. You cannot replay "this one order" from a metric.
+
+  Log     a line of text from a process.
+          Example: payment: card declined for order abc-123.
+          Useful when you already know where to look. It is not the
+          full path across services unless the line also has the
+          trace id.
+
+Shop pods send the trip (traces), the counters (metrics), and the
+diary lines (logs) to otelcol, packaged as OTLP. otelcol forwards
+traces to Jaeger, metrics to Prometheus (namespace monitoring),
+and logs to OpenSearch. It also prints them in its own logs.
+
+
+It listens on two ports:
+  4317  OTLP gRPC  (most shop services)
+  4318  OTLP HTTP  (some services; browser traces via frontendproxy)
+
+This version forwards traces to Jaeger (otlp/jaeger), metrics
+to Prometheus (otlphttp/prometheus), and logs to OpenSearch.
+All three still go to debug.
+
+
+Related services
+----------------
+Almost every Deployment in kubernetes/ sends telemetry here
+(OTEL_COLLECTOR_NAME / OTEL_EXPORTER_OTLP_ENDPOINT).
+
+frontendproxy also routes /otlp-http to this Service so the
+browser can send traces into the cluster.
+
+Traces out: jaeger (opentelemetry-demo-jaeger-query:4317).
+Metrics out: Prometheus in monitoring
+  (kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090/api/v1/otlp).
+Logs out: OpenSearch (opentelemetry-demo-opensearch:9200, index otel).
+
+
+Files
+-----
+  cm.yaml      collector config (OTLP in; traces to Jaeger;
+               metrics to Prometheus; logs to OpenSearch; debug)
+  deploy.yaml  one Collector pod
+  svc.yaml     ClusterIP on 4317 and 4318

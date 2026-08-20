@@ -1,0 +1,44 @@
+---
+# ============================================================
+# Service — Jaeger
+#
+# ClusterIP. frontendproxy looks up this exact name on 16686
+# for the Jaeger UI (JAEGER_SERVICE_HOST).
+#
+#   16686 → Jaeger UI (HTTP)
+#   4317  → OTLP gRPC (otelcol sends traces here)
+#
+# ClusterIP is in-cluster only — not an AWS load balancer.
+#
+# It works together with:
+#   jaeger/deploy.yaml             → Jaeger pod
+#   frontendproxy/deploy.yaml      → JAEGER_SERVICE_HOST/PORT
+#   otelcol/cm.yaml                → traces exporter
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: opentelemetry-demo-jaeger-query
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-jaeger
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: jaeger
+    app.kubernetes.io/name: opentelemetry-demo-jaeger
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+spec:
+
+  # ------------------------------------------------------------
+  # TYPE: ClusterIP
+  # One DNS name, two ports. Not an AWS load balancer.
+  # ------------------------------------------------------------
+  type: ClusterIP
+  ports:
+    - port: 16686
+      name: query-http
+      targetPort: 16686
+    - port: 4317
+      name: grpc-otlp
+      targetPort: 4317
+  selector:
+    opentelemetry.io/name: opentelemetry-demo-jaeger

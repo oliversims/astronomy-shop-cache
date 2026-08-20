@@ -1,0 +1,47 @@
+# ============================================================
+# Ingress — Jaeger UI (AWS ALB)
+#
+# Public HTTPS door for the Jaeger website (traces / timelines).
+# Same shared ALB as shop, Argo CD, and Grafana
+# (group.name: my-eks-cluster-public). Not a second load balancer.
+#
+# UI lives at /jaeger/ui (base_path in jaeger/cm.yaml) so the
+# shop proxy path /jaeger still works. Open:
+#   https://jaeger.simsoliver.com/jaeger/ui
+# Shop still: https://shop.simsoliver.com/jaeger
+#
+# Port 16686 is the UI. Do not point this Ingress at 4317 (OTLP).
+#
+# It works together with:
+#   jaeger/svc.yaml  → ClusterIP opentelemetry-demo-jaeger-query:16686
+#   jaeger/deploy.yaml
+#   03-acm / 04-alb / 05-external-dns
+# ============================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jaeger
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/group.name: my-eks-cluster-public
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    # Same cert as kubernetes/frontendproxy/ingress.yaml
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:742934034265:certificate/848e7b15-22b8-4060-b00b-2eb4d5c1813b
+    alb.ingress.kubernetes.io/backend-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-path: /jaeger/ui
+    external-dns.alpha.kubernetes.io/hostname: jaeger.simsoliver.com
+spec:
+  ingressClassName: alb
+  rules:
+    - host: jaeger.simsoliver.com
+      http:
+        paths:
+          - path: "/"
+            pathType: Prefix
+            backend:
+              service:
+                name: opentelemetry-demo-jaeger-query
+                port:
+                  number: 16686

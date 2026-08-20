@@ -1,0 +1,35 @@
+flagd
+=====
+
+What it does
+------------
+flagd is a feature-flag server. Other services ask it "is this
+flag on or off?" instead of hard-coding those switches.
+
+In this demo the flags are mostly intentional problems: fail ads,
+cart, catalog, or payment; slow images; flood the homepage; stress
+Kafka. All flags default to off, so the shop runs normally. Turn
+one on (flagd UI or cm.yaml) and that service misbehaves without
+a redeploy.
+
+The pod has two containers:
+  flagd     evaluation API on port 8013
+  flagdui   small UI on port 4000 (reached through frontendproxy)
+
+
+Related services
+----------------
+Ask flagd:
+  ad, cart, checkout, frontend, frontendproxy, frauddetection,
+  loadgenerator, payment, productcatalog, recommendation
+
+frontendproxy exposes the flagd UI to humans.
+
+Also sends telemetry to otelcol (OpenTelemetry Collector).
+
+
+Files
+-----
+  cm.yaml      flag definitions (not secrets)
+  deploy.yaml  flagd + flagdui
+  svc.yaml     ClusterIP 8013 and 4000

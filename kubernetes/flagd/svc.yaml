@@ -1,0 +1,42 @@
+---
+# ============================================================
+# Service — flagd
+#
+# ClusterIP with TWO ports on the same Service:
+#   8013 → flagd API (other shop pods evaluate flags here)
+#   4000 → flagdui UI (frontendproxy routes humans here)
+#
+# ClusterIP is in-cluster only — not an AWS load balancer.
+#
+# It works together with:
+#   flagd/deploy.yaml          → flagd + flagdui containers
+#   frontendproxy/deploy.yaml  → proxies port 4000 for the UI
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: opentelemetry-demo-flagd
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-flagd
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: flagd
+    app.kubernetes.io/name: opentelemetry-demo-flagd
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+spec:
+
+  # ------------------------------------------------------------
+  # TYPE: ClusterIP
+  # One DNS name, two ports. Not an AWS load balancer.
+  # ------------------------------------------------------------
+  type: ClusterIP
+  ports:
+    - port: 8013
+      name: tcp-service
+      targetPort: 8013
+    - port: 4000
+      name: tcp-service-0
+      targetPort: 4000
+  selector:
+    # Must match the flagd pod template label (both containers).
+    opentelemetry.io/name: opentelemetry-demo-flagd

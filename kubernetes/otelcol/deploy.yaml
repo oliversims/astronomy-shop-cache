@@ -1,0 +1,148 @@
+---
+# ============================================================
+# Deployment — OpenTelemetry Collector (otelcol)
+#
+# otelcol is short for OpenTelemetry Collector.
+# The mailbox. Shop pods already send OTLP here
+# (OTEL_COLLECTOR_NAME=opentelemetry-demo-otelcol).
+# Traces are forwarded to Jaeger. Metrics are forwarded to
+# Prometheus (monitoring). Logs are forwarded to OpenSearch.
+#
+# It works together with:
+#   otelcol/cm.yaml                → receive OTLP; traces/metrics/logs out
+#   otelcol/svc.yaml               → ClusterIP :4317 and :4318
+#   jaeger/svc.yaml                → opentelemetry-demo-jaeger-query:4317
+#   opensearch/svc.yaml            → opentelemetry-demo-opensearch:9200
+#   kubernetes/serviceaccount.yaml → shared identity
+#   */deploy.yaml                  → already point at this name
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opentelemetry-demo-otelcol
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-otelcol
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: otelcol
+    app.kubernetes.io/name: opentelemetry-demo-otelcol
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+spec:
+
+  # ------------------------------------------------------------
+  # REPLICAS
+  # One replica — demo default. One mailbox is enough.
+  # ------------------------------------------------------------
+  replicas: 1
+
+  # ------------------------------------------------------------
+  # REVISION HISTORY
+  # Keep 10 old ReplicaSets for kubectl rollout undo.
+  # ------------------------------------------------------------
+  revisionHistoryLimit: 10
+
+  # ------------------------------------------------------------
+  # SELECTOR
+  # Owns pods with this label. Must match the template labels.
+  # ------------------------------------------------------------
+  selector:
+    matchLabels:
+      opentelemetry.io/name: opentelemetry-demo-otelcol
+  template:
+    metadata:
+      labels:
+        opentelemetry.io/name: opentelemetry-demo-otelcol
+        app.kubernetes.io/instance: opentelemetry-demo
+        app.kubernetes.io/component: otelcol
+        app.kubernetes.io/name: opentelemetry-demo-otelcol
+      annotations:
+        # Bump when otelcol/cm.yaml pipelines change so the pod
+        # restarts (the Collector does not watch the config file).
+        checksum/config: "v1"
+    spec:
+
+      # ------------------------------------------------------------
+      # SERVICE ACCOUNT
+      # Shared identity for demo pods. Defined in
+      # kubernetes/serviceaccount.yaml (name: opentelemetry-demo).
+      # ------------------------------------------------------------
+      serviceAccountName: opentelemetry-demo
+      containers:
+        - name: otelcol
+
+          # ----------------------------------------------------------
+          # IMAGE
+          # Official Collector Contrib (same tag as docker-compose
+          # .env COLLECTOR_CONTRIB_IMAGE). Public GHCR — no pull
+          # secret. IfNotPresent: reuse the image if the node has it.
+          # ----------------------------------------------------------
+          image: 'ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.133.0'
+          imagePullPolicy: IfNotPresent
+
+          # Keep the image entrypoint (the collector binary).
+          # args only pass the config file path.
+          args:
+            - --config=/etc/otelcol/otelcol-config.yml
+
+          # ----------------------------------------------------------
+          # PORTS
+          # 4317 OTLP gRPC, 4318 OTLP HTTP — ClusterIP in svc.yaml.
+          # 13133 health_check — probes only, not on the Service.
+          # ----------------------------------------------------------
+          ports:
+            - containerPort: 4317
+              name: grpc-otlp
+            - containerPort: 4318
+              name: http-otlp
+            - containerPort: 13133
+              name: health
+
+          # ----------------------------------------------------------
+          # PROBES
+          # health_check extension in cm.yaml listens on 13133.
+          # ----------------------------------------------------------
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+          # ----------------------------------------------------------
+          # RESOURCES
+          # Memory cap 256Mi. GOMEMLIMIT keeps Go below that cap.
+          # ----------------------------------------------------------
+          resources:
+            limits:
+              memory: 256Mi
+          env:
+            - name: GOMEMLIMIT
+              value: 200MiB
+
+          # ----------------------------------------------------------
+          # SECURITY CONTEXT
+          # Non-root. UID comes from the image (10001).
+          # ----------------------------------------------------------
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+
+          # ----------------------------------------------------------
+          # VOLUME MOUNTS
+          # Read-only ConfigMap from otelcol/cm.yaml.
+          # ----------------------------------------------------------
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol
+              readOnly: true
+
+      volumes:
+        - name: config
+          configMap:
+            name: opentelemetry-demo-otelcol-config

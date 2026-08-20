@@ -1,0 +1,70 @@
+kube-prometheus-stack (07-monitoring)
+=====================================
+
+This stack watches the CLUSTER (nodes, pods, Kubernetes) and can
+also receive shop METRICS over OTLP from otelcol.
+All of it lives in namespace "monitoring".
+
+
+Prometheus
+----------
+A notebook that collects numbers.
+
+Every few seconds it asks the cluster: CPU? memory? is this pod
+alive? It also accepts OTLP writes from otelcol at
+/api/v1/otlp (enableOTLPReceiver in main.tf). Shop counters land
+here after otelcol forwards them.
+
+You do not open Prometheus from the internet.
+
+
+Exporters
+---------
+Small helpers that answer Prometheus's scrape questions.
+
+Examples:
+  node-exporter       — how busy is this machine?
+  kube-state-metrics  — what does Kubernetes think (pods, restarts)?
+
+The shop is not one of these exporters. Shop metrics arrive via
+otelcol OTLP, not via node-exporter.
+
+
+Alertmanager
+------------
+A smoke alarm.
+
+If a number looks bad, Prometheus can tell Alertmanager, and
+Alertmanager could email or Slack you. This project never wired
+that up, so it is installed but quiet.
+
+
+Grafana
+-------
+The TV.
+
+It reads Prometheus's notebook (cluster + shop metrics) and can
+read OpenSearch (shop logs, index otel). This is the only
+part that is public:
+
+  https://grafana.simsoliver.com
+  Login: admin
+  Password: see verify.txt
+
+In Grafana: Connections → Data sources → OpenSearch.
+Explore that datasource to see diary lines after otelcol is
+forwarding logs. Shop traces still live in Jaeger
+(https://shop.simsoliver.com/jaeger), not in this Grafana.
+
+
+How they fit together
+---------------------
+
+  cluster exporters answer (scrape)
+    -> Prometheus writes it down
+  otelcol (otel-demo) sends shop metrics (OTLP)
+    -> Prometheus writes it down
+  otelcol (otel-demo) sends shop logs
+    -> OpenSearch (otel-demo) stores them
+    -> Grafana reads Prometheus and OpenSearch
+    -> Alertmanager would shout (nobody is listening)

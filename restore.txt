@@ -1,0 +1,58 @@
+Restore this project (AWS + shop)
+=================================
+
+Run from WSL or Git Bash, repo root. AWS CLI must already be logged in
+(region us-east-1). Your public IP must match 02-eks public_access_cidrs
+(currently 68.195.155.202/32). Change that file first if your IP changed.
+
+Shop images are already on GHCR (public). Do not remirror them.
+
+
+1. State bucket (once)
+
+   cd eks-install/00-s3
+   terraform init
+   terraform apply
+
+   terraform output -raw state_bucket_name
+
+   Paste that name into backend.s3.bucket (and any remote_state bucket)
+   in 01-vpc through 07-monitoring. Skip this paste if you kept the old
+   bucket terraform-eks-state-s3-bucket-u17tc1 and it still exists.
+
+
+2. Cluster and add-ons
+
+   cd eks-install
+   ./apply-00-to-07.sh
+
+   If 03-acm sits on certificate validation: Route 53 → registered
+   domain simsoliver.com → set nameservers to the new hosted zone NS
+   records. Then wait until the cert is Issued.
+
+
+3. kubectl
+
+   aws eks update-kubeconfig --name my-eks-cluster --region us-east-1
+
+
+4. Shop (Argo CD)
+
+   kubectl apply -f argocd/application.yaml
+
+   kubectl get application otel-demo -n argocd
+   kubectl get pods -n otel-demo
+
+   Expect Synced / Healthy and 22 Running pods.
+
+
+5. URLs
+
+   https://shop.simsoliver.com
+   https://jaeger.simsoliver.com/jaeger/ui
+   https://argocd.simsoliver.com
+   https://grafana.simsoliver.com
+
+   Argo CD login: admin
+   Password (PowerShell):
+     kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | ForEach-Object { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_)) }

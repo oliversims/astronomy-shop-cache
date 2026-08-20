@@ -1,0 +1,152 @@
+---
+# ============================================================
+# Deployment — Frontend Proxy (Envoy)
+#
+# Envoy reverse proxy — the in-cluster front door after Ingress.
+# It routes one listener (8080) to the shop UI, flagd UI, Grafana,
+# image provider, Jaeger, load generator, and the OTEL collector.
+# Users hit the AWS ALB; the ALB forwards to this pod's Service.
+#
+# It works together with:
+#   frontendproxy/svc.yaml     → ClusterIP :8080 (Ingress backend)
+#   frontendproxy/ingress.yaml → public AWS ALB → this Service
+#   frontend/svc.yaml          → shop UI
+#   flagd/svc.yaml             → flagd API :8013 and flagdui :4000
+#   grafana, imageprovider, jaeger, loadgenerator, otelcol (OpenTelemetry Collector)
+#   serviceaccount.yaml        → shared identity opentelemetry-demo
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opentelemetry-demo-frontendproxy
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-frontendproxy
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: frontendproxy
+    app.kubernetes.io/name: opentelemetry-demo-frontendproxy
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+spec:
+
+  # ------------------------------------------------------------
+  # REPLICAS
+  # Demo default: one Envoy pod. No HPA in this project.
+  # ------------------------------------------------------------
+  replicas: 1
+
+  # ------------------------------------------------------------
+  # REVISION HISTORY
+  # Keep 10 old ReplicaSets for kubectl rollout undo.
+  # ------------------------------------------------------------
+  revisionHistoryLimit: 10
+
+  # ------------------------------------------------------------
+  # SELECTOR
+  # Owns pods with this label. Must match the template labels.
+  # ------------------------------------------------------------
+  selector:
+    matchLabels:
+      opentelemetry.io/name: opentelemetry-demo-frontendproxy
+  template:
+    metadata:
+      labels:
+        opentelemetry.io/name: opentelemetry-demo-frontendproxy
+        app.kubernetes.io/instance: opentelemetry-demo
+        app.kubernetes.io/component: frontendproxy
+        app.kubernetes.io/name: opentelemetry-demo-frontendproxy
+    spec:
+
+      # ------------------------------------------------------------
+      # SERVICE ACCOUNT
+      # Shared identity for demo pods. Defined in
+      # kubernetes/serviceaccount.yaml (name: opentelemetry-demo).
+      # ------------------------------------------------------------
+      serviceAccountName: opentelemetry-demo
+      containers:
+        - name: frontendproxy
+          image: 'ghcr.io/oliversims/otel-demo:1.12.0-frontendproxy'
+
+          # ----------------------------------------------------
+          # IMAGE PULL POLICY: IfNotPresent
+          # Pull only if the node does not already have the image.
+          # ----------------------------------------------------
+          imagePullPolicy: IfNotPresent
+          ports:
+
+            - containerPort: 8080
+              name: service
+          env:
+            - name: OTEL_SERVICE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  # Runtime service name = "frontendproxy".
+                  fieldPath: metadata.labels['app.kubernetes.io/component']
+            - name: OTEL_COLLECTOR_NAME
+              value: 'opentelemetry-demo-otelcol'
+            - name: OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+              value: cumulative
+            - name: ENVOY_PORT
+              # Envoy listens here; Ingress and the ClusterIP use 8080.
+              value: "8080"
+
+            # ----------------------------------------------------
+            # ENVOY UPSTREAMS
+            # ClusterIP DNS names Envoy proxies to. These are
+            # in-cluster only — not AWS load balancers.
+            # ----------------------------------------------------
+            - name: FLAGD_HOST
+              value: 'opentelemetry-demo-flagd'
+            - name: FLAGD_PORT
+              value: "8013"
+            - name: FLAGD_UI_HOST
+              value: 'opentelemetry-demo-flagd'
+            - name: FLAGD_UI_PORT
+              value: "4000"
+            - name: FRONTEND_HOST
+              value: 'opentelemetry-demo-frontend'
+            - name: FRONTEND_PORT
+              value: "8080"
+            - name: GRAFANA_SERVICE_HOST
+              value: 'opentelemetry-demo-grafana'
+            - name: GRAFANA_SERVICE_PORT
+              value: "80"
+            - name: IMAGE_PROVIDER_HOST
+              value: 'opentelemetry-demo-imageprovider'
+            - name: IMAGE_PROVIDER_PORT
+              value: "8081"
+            - name: JAEGER_SERVICE_HOST
+              value: 'opentelemetry-demo-jaeger-query'
+            - name: JAEGER_SERVICE_PORT
+              value: "16686"
+            - name: LOCUST_WEB_HOST
+              value: 'opentelemetry-demo-loadgenerator'
+            - name: LOCUST_WEB_PORT
+              value: "8089"
+            - name: OTEL_COLLECTOR_HOST
+              value: $(OTEL_COLLECTOR_NAME)
+            - name: OTEL_COLLECTOR_PORT_GRPC
+              value: "4317"
+            - name: OTEL_COLLECTOR_PORT_HTTP
+              # Browser traces via /otlp-http land on collector :4318.
+              value: "4318"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.name=$(OTEL_SERVICE_NAME),service.namespace=opentelemetry-demo,service.version=1.12.0
+          resources:
+            limits:
+              memory: 50Mi
+
+          # ----------------------------------------------------
+          # CONTAINER SECURITY CONTEXT
+          # Envoy image runs as UID/GID 101, never as root.
+          # ----------------------------------------------------
+          securityContext:
+            runAsGroup: 101
+            runAsNonRoot: true
+            runAsUser: 101
+
+          # Unused Helm leftover — Envoy mounts no extra volumes here.
+          volumeMounts:
+
+      # Unused Helm leftover — no volumes are defined for this pod.
+      volumes:

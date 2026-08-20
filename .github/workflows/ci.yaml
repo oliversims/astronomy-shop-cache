@@ -1,0 +1,190 @@
+# ============================================================
+# GitHub Actions — Product Catalog CI
+#
+# CI for src/product-catalog only — not the whole shop.
+#
+# pull_request  → build, test, lint. Does not push an image.
+# push to main  → same checks, then build linux/amd64, push a
+#                 NEW tag to GHCR, and commit that tag into
+#                 kubernetes/productcatalog/deploy.yaml.
+# workflow_dispatch → same as push to main (run from Actions UI).
+#
+# Argo CD watches that YAML on main, so the commit is the deploy.
+# Do not overwrite an existing GHCR tag; do not git push -f.
+#
+# GHCR: link the otel-demo package to this repo (package settings
+# → Manage Actions access) so GITHUB_TOKEN can push. Keep the
+# package public so EKS can pull without a secret.
+# ============================================================
+
+name: product-catalog-ci
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/product-catalog/**"
+      - ".github/workflows/ci.yaml"
+  push:
+    branches:
+      - main
+    paths:
+      - "src/product-catalog/**"
+  workflow_dispatch:
+
+concurrency:
+  group: product-catalog-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+
+  # ------------------------------------------------------------
+  # JOB: build
+  # Installs Go 1.22, compiles main.go, runs go test.
+  # Does not build a container (that is the docker job).
+  # ------------------------------------------------------------
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go 1.22
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: src/product-catalog/go.sum
+
+      - name: Build
+        run: |
+          cd src/product-catalog
+          go mod download
+          go build -o product-catalog-service main.go
+
+      - name: unit tests
+        run: |
+          cd src/product-catalog
+          go test ./...
+
+  # ------------------------------------------------------------
+  # JOB: code-quality
+  # golangci-lint against src/product-catalog.
+  # Independent of build (no needs:); both jobs start together.
+  # v9 runs on Node 24 (v6 used Node 20, which GitHub runners
+  # no longer support). v9 needs golangci-lint v2.1 or newer.
+  # ------------------------------------------------------------
+  code-quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go 1.22
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: src/product-catalog/go.sum
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.1
+          working-directory: src/product-catalog
+
+  # ------------------------------------------------------------
+  # JOB: docker
+  # Main / manual only. Waits for build. Pushes linux/amd64 to
+  # ghcr.io/<owner>/otel-demo:1.12.0-productcatalogservice-<run_id>
+  # so the tag is unique (IfNotPresent-safe).
+  # ------------------------------------------------------------
+  docker:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    needs: build
+
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+
+      - name: Image name
+        id: meta
+        run: |
+          OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+          IMAGE="ghcr.io/${OWNER}/otel-demo:1.12.0-productcatalogservice-${{ github.run_id }}"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "Pushing ${IMAGE}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: src/product-catalog
+          file: src/product-catalog/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.image }}
+
+  # ------------------------------------------------------------
+  # JOB: updatek8s
+  # After the image is on GHCR, point the Deployment at the new
+  # tag and push a normal commit to main. Argo CD syncs that.
+  # GITHUB_TOKEN commits do not re-run this workflow (path filter
+  # is src/product-catalog only).
+  # ------------------------------------------------------------
+  updatek8s:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    needs: docker
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update image in Deployment
+        env:
+          IMAGE: ${{ needs.docker.outputs.image }}
+        run: |
+          sed -i -E "s|^([[:space:]]*image: ')ghcr.io/.+/otel-demo:1.12.0-productcatalogservice[^']*(')|\1${IMAGE}\2|" kubernetes/productcatalog/deploy.yaml
+          grep -n "image:" kubernetes/productcatalog/deploy.yaml
+
+      - name: Commit and push
+        env:
+          IMAGE: ${{ needs.docker.outputs.image }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add kubernetes/productcatalog/deploy.yaml
+          if git diff --cached --quiet; then
+            echo "Manifest already points at ${IMAGE}"
+            exit 0
+          fi
+          git commit -m "ci: point product catalog at ${IMAGE}"
+          git push origin HEAD:main

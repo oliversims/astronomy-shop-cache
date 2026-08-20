@@ -1,0 +1,53 @@
+---
+# ============================================================
+# Service — Kafka
+#
+# ClusterIP for the Kafka broker. Other pods reach it as
+# opentelemetry-demo-kafka on 9092 (plaintext) and 9093
+# (controller). ClusterIP is in-cluster only — not an AWS
+# load balancer.
+#
+# It works together with:
+#   deploy.yaml → Kafka pods selected by opentelemetry.io/name
+# ============================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: opentelemetry-demo-kafka
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-kafka
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: kafka
+    app.kubernetes.io/name: opentelemetry-demo-kafka
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+spec:
+
+  # ------------------------------------------------------------
+  # TYPE
+  # ClusterIP — reachable only inside the cluster. This is not
+  # a LoadBalancer and does not create an AWS NLB/ALB.
+  # ------------------------------------------------------------
+  type: ClusterIP
+
+  # ------------------------------------------------------------
+  # PORTS
+  # 9092 plaintext — producers/consumers (checkout, accounting,
+  # fraud). Must match KAFKA_ADVERTISED_LISTENERS in deploy.yaml.
+  # 9093 controller — Kafka KRaft controller listener.
+  # ------------------------------------------------------------
+  ports:
+    - port: 9092
+      name: plaintext
+      targetPort: 9092
+    - port: 9093
+      name: controller
+      targetPort: 9093
+
+  # ------------------------------------------------------------
+  # SELECTOR
+  # Routes traffic to pods with this label (the Kafka Deployment).
+  # ------------------------------------------------------------
+  selector:
+    opentelemetry.io/name: opentelemetry-demo-kafka

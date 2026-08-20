@@ -1,0 +1,104 @@
+---
+# ============================================================
+# ConfigMap — Jaeger (trace storage + UI)
+#
+# otelcol is short for OpenTelemetry Collector.
+# Jaeger stores traces and shows them as a timeline.
+#
+# otelcol sends traces here over OTLP gRPC on :4317.
+# Traces sit in memory only — restart the pod and the
+# timeline is empty.
+#
+# It works together with:
+#   jaeger/deploy.yaml → mounts this file
+#   jaeger/svc.yaml    → UI :16686 and OTLP gRPC :4317
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opentelemetry-demo-jaeger-config
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-jaeger
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: jaeger
+    app.kubernetes.io/name: opentelemetry-demo-jaeger
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+
+# ------------------------------------------------------------
+# DATA
+# Listen on 0.0.0.0 so other pods can reach this container.
+# Do not copy src/jaeger/config.yml as-is — that file talks to
+# Docker DNS and Prometheus.
+# ------------------------------------------------------------
+data:
+  config.yml: |
+    # ============================================================
+    # PIPELINES — Jaeger only handles TRACES (not metrics, not logs)
+    # OTLP in from otelcol → store in memory → UI can read it
+    # ============================================================
+    service:
+      extensions: [jaeger_storage, jaeger_query, healthcheckv2]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [jaeger_storage_exporter]
+      telemetry:
+        resource:
+          service.name: jaeger
+        logs:
+          level: info
+
+    # ============================================================
+    # EXTENSIONS — UI, memory store, health (not OpenSearch)
+    # ============================================================
+    extensions:
+      # Kubernetes probes (deploy.yaml path /status). Not a public port.
+      # healthcheckv2 with use_v2 does not serve /. / returns 404.
+      healthcheckv2:
+        use_v2: true
+        http:
+          endpoint: 0.0.0.0:13133
+
+      # JAEGER UI — website (timelines)
+      # Kubernetes Service port 16686 (frontendproxy JAEGER_SERVICE_PORT)
+      jaeger_query:
+        storage:
+          traces: memory_backend
+        http:
+          endpoint: 0.0.0.0:16686
+        base_path: /jaeger/ui
+
+      # JAEGER STORAGE — in-memory cabinet for traces
+      # Restart the pod and this is empty. Not OpenSearch. Not Prometheus.
+      jaeger_storage:
+        backends:
+          memory_backend:
+            memory:
+              max_traces: 25000
+
+    # ============================================================
+    # RECEIVERS — how otelcol sends traces IN to Jaeger
+    # Same OTLP gRPC port as kubernetes/jaeger/svc.yaml :4317
+    # Shop pods do not call this; they call otelcol.
+    # ============================================================
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+
+    # ============================================================
+    # PROCESSORS — batch before writing to memory
+    # ============================================================
+    processors:
+      batch:
+
+    # ============================================================
+    # EXPORTERS — write traces into jaeger_storage (memory)
+    # This is Jaeger talking to itself, not to otelcol.
+    # ============================================================
+    exporters:
+      jaeger_storage_exporter:
+        trace_storage: memory_backend

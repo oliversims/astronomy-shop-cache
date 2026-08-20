@@ -1,0 +1,27 @@
+Recommendation
+==============
+
+What it does
+------------
+Suggests other products ("you may also like"). It reads the
+product catalog and returns a short list. It does not own the
+catalog or the basket.
+
+flagd can break its cache (recommendationServiceCacheFailure).
+
+
+Related services
+----------------
+Calls:
+  productcatalog   what exists on the shelf
+  flagd            optional cache failure
+
+Called by: frontend
+
+Also sends telemetry to otelcol (OpenTelemetry Collector).
+
+
+Files
+-----
+  deploy.yaml
+  svc.yaml     ClusterIP on 8080

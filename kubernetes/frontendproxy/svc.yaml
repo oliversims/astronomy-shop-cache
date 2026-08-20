@@ -1,0 +1,39 @@
+---
+# ============================================================
+# Service — Frontend Proxy
+#
+# ClusterIP in front of the Envoy pods. This is the Ingress
+# backend: the AWS ALB forwards to this Service on port 8080.
+# ClusterIP itself is still in-cluster only — the public
+# address comes from the Ingress/ALB, not from this object.
+#
+# It works together with:
+#   frontendproxy/deploy.yaml  → pods selected by the label below
+#   frontendproxy/ingress.yaml → ALB target (this Service :8080)
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: opentelemetry-demo-frontendproxy
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-frontendproxy
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: frontendproxy
+    app.kubernetes.io/name: opentelemetry-demo-frontendproxy
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+spec:
+
+  # ------------------------------------------------------------
+  # TYPE: ClusterIP
+  # Stable in-cluster virtual IP + DNS. Not an AWS load balancer.
+  # The ALB is created by the Ingress, not by this Service.
+  # ------------------------------------------------------------
+  type: ClusterIP
+  ports:
+    - port: 8080
+      name: tcp-service
+      targetPort: 8080
+  selector:
+    # Must match the frontendproxy pod template label.
+    opentelemetry.io/name: opentelemetry-demo-frontendproxy

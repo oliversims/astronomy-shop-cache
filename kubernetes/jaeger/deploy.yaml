@@ -1,0 +1,141 @@
+---
+# ============================================================
+# Deployment — Jaeger
+#
+# The cabinet for traces. Shop pods do not talk to Jaeger
+# directly. otelcol (OpenTelemetry Collector) sends traces
+# here over OTLP gRPC :4317. frontendproxy already points at
+# opentelemetry-demo-jaeger-query:16686 for the UI.
+#
+# Storage is in-memory. Restart this pod and old traces are gone.
+#
+# It works together with:
+#   jaeger/cm.yaml                 → Jaeger config
+#   jaeger/svc.yaml                → ClusterIP :16686 and :4317
+#   kubernetes/serviceaccount.yaml → shared identity
+#   frontendproxy/deploy.yaml      → already uses this Service name
+#   otelcol/cm.yaml                → traces exporter
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opentelemetry-demo-jaeger
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-jaeger
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: jaeger
+    app.kubernetes.io/name: opentelemetry-demo-jaeger
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+spec:
+
+  # ------------------------------------------------------------
+  # REPLICAS
+  # One replica — demo default. Memory storage is local to this pod.
+  # ------------------------------------------------------------
+  replicas: 1
+
+  # ------------------------------------------------------------
+  # REVISION HISTORY
+  # Keep 10 old ReplicaSets for kubectl rollout undo.
+  # ------------------------------------------------------------
+  revisionHistoryLimit: 10
+
+  # ------------------------------------------------------------
+  # SELECTOR
+  # Owns pods with this label. Must match the template labels.
+  # ------------------------------------------------------------
+  selector:
+    matchLabels:
+      opentelemetry.io/name: opentelemetry-demo-jaeger
+  template:
+    metadata:
+      labels:
+        opentelemetry.io/name: opentelemetry-demo-jaeger
+        app.kubernetes.io/instance: opentelemetry-demo
+        app.kubernetes.io/component: jaeger
+        app.kubernetes.io/name: opentelemetry-demo-jaeger
+    spec:
+
+      # ------------------------------------------------------------
+      # SERVICE ACCOUNT
+      # Shared identity for demo pods. Defined in
+      # kubernetes/serviceaccount.yaml (name: opentelemetry-demo).
+      # ------------------------------------------------------------
+      serviceAccountName: opentelemetry-demo
+      containers:
+        - name: jaeger
+
+          # ----------------------------------------------------------
+          # IMAGE
+          # Same tag as docker-compose .env JAEGERTRACING_IMAGE.
+          # IfNotPresent: reuse the image if the node already has it.
+          # ----------------------------------------------------------
+          image: 'jaegertracing/jaeger:2.10.0'
+          imagePullPolicy: IfNotPresent
+
+          args:
+            - --config=file:/etc/jaeger/config.yml
+
+          # ----------------------------------------------------------
+          # PORTS
+          # 16686 Jaeger UI — ClusterIP in svc.yaml.
+          # 4317  OTLP gRPC — otelcol sends traces here.
+          # 13133 healthcheckv2 — probes only, not on the Service.
+          # ----------------------------------------------------------
+          ports:
+            - containerPort: 16686
+              name: query-http
+            - containerPort: 4317
+              name: grpc-otlp
+            - containerPort: 13133
+              name: health
+
+          # ----------------------------------------------------------
+          # PROBES
+          # healthcheckv2 (use_v2) serves /status, not /. Path /
+          # returns 404 and kubelet kills a healthy process.
+          # ----------------------------------------------------------
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: 13133
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: 13133
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+          # ----------------------------------------------------------
+          # RESOURCES
+          # Memory traces live in this process. Cap matches the
+          # docker-compose demo (about 1.2Gi).
+          # ----------------------------------------------------------
+          resources:
+            limits:
+              memory: 1280Mi
+
+          # ----------------------------------------------------------
+          # SECURITY CONTEXT
+          # Non-root. UID comes from the image.
+          # ----------------------------------------------------------
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+
+          # ----------------------------------------------------------
+          # VOLUME MOUNTS
+          # Read-only ConfigMap from jaeger/cm.yaml.
+          # ----------------------------------------------------------
+          volumeMounts:
+            - name: config
+              mountPath: /etc/jaeger
+              readOnly: true
+
+      volumes:
+        - name: config
+          configMap:
+            name: opentelemetry-demo-jaeger-config

@@ -1,0 +1,182 @@
+---
+# ============================================================
+# Deployment — flagd + flagdui
+#
+# OpenFeature flagd (feature-flag evaluation API) plus a
+# flagdui sidecar (browser UI). Other shop services call flagd
+# on :8013. Humans reach flagdui on :4000 via frontendproxy.
+# Flag JSON comes from ConfigMap opentelemetry-demo-flagd-config
+# (see cm.yaml) — copied into a writable emptyDir at start.
+#
+# It works together with:
+#   flagd/cm.yaml             → demo.flagd.json (non-secret flags)
+#   flagd/svc.yaml            → ClusterIP :8013 and :4000
+#   frontendproxy/deploy.yaml → proxies the flagdui UI
+#   otelcol (OpenTelemetry Collector)                   → flagd metrics via OTEL
+#   serviceaccount.yaml       → shared identity opentelemetry-demo
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opentelemetry-demo-flagd
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-flagd
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: flagd
+    app.kubernetes.io/name: opentelemetry-demo-flagd
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+spec:
+
+  # ------------------------------------------------------------
+  # REPLICAS
+  # Demo default: one pod with two containers. No HPA here.
+  # ------------------------------------------------------------
+  replicas: 1
+
+  # ------------------------------------------------------------
+  # REVISION HISTORY
+  # Keep 10 old ReplicaSets for kubectl rollout undo.
+  # ------------------------------------------------------------
+  revisionHistoryLimit: 10
+
+  # ------------------------------------------------------------
+  # SELECTOR
+  # Owns pods with this label. Must match the template labels.
+  # ------------------------------------------------------------
+  selector:
+    matchLabels:
+      opentelemetry.io/name: opentelemetry-demo-flagd
+  template:
+    metadata:
+      labels:
+        opentelemetry.io/name: opentelemetry-demo-flagd
+        app.kubernetes.io/instance: opentelemetry-demo
+        app.kubernetes.io/component: flagd
+        app.kubernetes.io/name: opentelemetry-demo-flagd
+    spec:
+
+      # ------------------------------------------------------------
+      # SERVICE ACCOUNT
+      # Shared identity for demo pods. Defined in
+      # kubernetes/serviceaccount.yaml (name: opentelemetry-demo).
+      # ------------------------------------------------------------
+      serviceAccountName: opentelemetry-demo
+      containers:
+
+        # ----------------------------------------------------------
+        # CONTAINER 1 — flagd (OpenFeature evaluation API)
+        # ----------------------------------------------------------
+        - name: flagd
+          image: 'ghcr.io/oliversims/flagd:v0.11.1'
+
+          # ----------------------------------------------------
+          # IMAGE PULL POLICY: IfNotPresent
+          # Pull only if the node does not already have the image.
+          # ----------------------------------------------------
+          imagePullPolicy: IfNotPresent
+          command:
+            - /flagd-build
+            - start
+            - --uri
+            # File copied by init-config into the emptyDir at /etc/flagd.
+            - file:./etc/flagd/demo.flagd.json
+          ports:
+
+            - containerPort: 8013
+              name: service
+          env:
+            - name: OTEL_SERVICE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  # Runtime service name = "flagd".
+                  fieldPath: metadata.labels['app.kubernetes.io/component']
+            - name: OTEL_COLLECTOR_NAME
+              value: 'opentelemetry-demo-otelcol'
+            - name: OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+              value: cumulative
+            - name: FLAGD_METRICS_EXPORTER
+              # Export flagd metrics through OpenTelemetry, not Prometheus scrape.
+              value: otel
+            - name: FLAGD_OTEL_COLLECTOR_URI
+              # Collector gRPC :4317 (host:port, no http:// scheme).
+              value: $(OTEL_COLLECTOR_NAME):4317
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.name=$(OTEL_SERVICE_NAME),service.namespace=opentelemetry-demo,service.version=1.12.0
+          resources:
+            limits:
+              memory: 75Mi
+          volumeMounts:
+            - name: config-rw
+              mountPath: /etc/flagd
+
+        # ----------------------------------------------------------
+        # CONTAINER 2 — flagdui (sidecar UI)
+        # Same pod, same emptyDir. Served via frontendproxy :4000.
+        # ----------------------------------------------------------
+        - name: flagdui
+          image: 'ghcr.io/oliversims/otel-demo:1.12.0-flagdui'
+          imagePullPolicy: IfNotPresent
+          ports:
+
+            - containerPort: 4000
+              name: service
+          env:
+            - name: OTEL_SERVICE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.labels['app.kubernetes.io/component']
+            - name: OTEL_COLLECTOR_NAME
+              value: 'opentelemetry-demo-otelcol'
+            - name: OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+              value: cumulative
+            - name: FLAGD_METRICS_EXPORTER
+              value: otel
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              # UI sidecar uses OTLP HTTP :4318.
+              value: http://$(OTEL_COLLECTOR_NAME):4318
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.name=$(OTEL_SERVICE_NAME),service.namespace=opentelemetry-demo,service.version=1.12.0
+          resources:
+            limits:
+              memory: 75Mi
+          volumeMounts:
+            - mountPath: /app/data
+              name: config-rw
+
+      # ----------------------------------------------------------
+      # INIT CONTAINER — init-config
+      # ConfigMap mounts are typically read-only. Copy the flag
+      # JSON into the writable emptyDir so flagd/flagdui can use it.
+      # ----------------------------------------------------------
+      initContainers:
+        - command:
+          - sh
+          - -c
+          - cp /config-ro/demo.flagd.json /config-rw/demo.flagd.json && cat /config-rw/demo.flagd.json
+          image: 'ghcr.io/oliversims/busybox:1.36'
+          name: init-config
+          volumeMounts:
+          - mountPath: /config-ro
+            name: config-ro
+          - mountPath: /config-rw
+            name: config-rw
+      volumes:
+
+        # ------------------------------------------------------
+        # config-rw: emptyDir
+        # Writable copy of the flag file. Cleared when the pod dies.
+        # ------------------------------------------------------
+        - name: config-rw
+          emptyDir: {}
+
+        # ------------------------------------------------------
+        # config-ro: ConfigMap
+        # Source flags from kubernetes/flagd/cm.yaml.
+        # Not a Secret — flag definitions are not credentials.
+        # ------------------------------------------------------
+        - configMap:
+            name: 'opentelemetry-demo-flagd-config'
+          name: config-ro

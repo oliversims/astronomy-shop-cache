@@ -1,0 +1,38 @@
+Checkout
+========
+
+What it does
+------------
+Finishes the sale when the shopper places an order. It is the
+busiest caller in the shop. The website is the only shop service
+that calls checkout.
+
+On place-order it typically:
+  1. reads the cart
+  2. reads the catalog
+  3. converts currency
+  4. charges payment
+  5. asks shipping (which asks quote)
+  6. sends email
+  7. publishes an event to Kafka (accounting and fraud-detection
+     read that later; checkout does not wait for them)
+
+flagd can affect checkout and the services it calls.
+
+
+Related services
+----------------
+Calls:
+  cart, productcatalog, currency, payment, shipping, email, kafka, flagd
+
+Called by: frontend
+
+Downstream via Kafka (not HTTP): accounting, frauddetection
+
+Also sends telemetry to otelcol (OpenTelemetry Collector).
+
+
+Files
+-----
+  deploy.yaml
+  svc.yaml     ClusterIP on 8080

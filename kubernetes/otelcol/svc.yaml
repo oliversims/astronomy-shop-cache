@@ -1,0 +1,47 @@
+---
+# ============================================================
+# Service — OpenTelemetry Collector (otelcol)
+#
+# otelcol is short for OpenTelemetry Collector.
+#
+# ClusterIP with TWO ports on the same Service. Same DNS name
+# every shop Deployment already uses: opentelemetry-demo-otelcol
+#
+#   4317 → OTLP gRPC (most shop services)
+#   4318 → OTLP HTTP (some services, and browser traces via
+#           frontendproxy)
+#
+# ClusterIP is in-cluster only — not an AWS load balancer.
+#
+# It works together with:
+#   otelcol/deploy.yaml → Collector pods on those ports
+#   */deploy.yaml       → OTEL_COLLECTOR_NAME already set
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: opentelemetry-demo-otelcol
+  labels:
+    opentelemetry.io/name: opentelemetry-demo-otelcol
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/component: otelcol
+    app.kubernetes.io/name: opentelemetry-demo-otelcol
+    app.kubernetes.io/version: "1.12.0"
+    app.kubernetes.io/part-of: opentelemetry-demo
+spec:
+
+  # ------------------------------------------------------------
+  # TYPE: ClusterIP
+  # One DNS name, two ports. Not an AWS load balancer.
+  # ------------------------------------------------------------
+  type: ClusterIP
+  ports:
+    - port: 4317
+      name: grpc-otlp
+      targetPort: 4317
+    - port: 4318
+      name: http-otlp
+      targetPort: 4318
+  selector:
+    # Must match the Collector pod template label.
+    opentelemetry.io/name: opentelemetry-demo-otelcol

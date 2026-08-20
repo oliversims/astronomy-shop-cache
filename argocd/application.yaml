@@ -1,0 +1,37 @@
+# kubectl apply -f argocd/application.yaml
+# Argo CD then deploys kubernetes/ from git. You do not kubectl apply the shop.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  # Lives in the argocd namespace so the Argo CD controller sees it.
+  name: otel-demo
+  namespace: argocd
+spec:
+  # Built-in Argo CD project. Required on every Application.
+  project: default
+
+  source:
+    # Git repo + branch Argo CD clones. Must already be on GitHub.
+    repoURL: https://github.com/oliversims/astronomy-shop.git
+    targetRevision: main
+    # Folder in that repo that holds the shop YAML.
+    path: kubernetes
+    directory:
+      # kubernetes/ad, kubernetes/cart, ... not only files at the top level.
+      recurse: true
+      # complete-deploy.yaml is the same shop in one file. Skip it or every
+      # Service/Deployment is created twice.
+      exclude: complete-deploy.yaml
+
+  destination:
+    # This cluster (where Argo CD is running).
+    server: https://kubernetes.default.svc
+    # Shop pods go here. Manifests have no namespace of their own.
+    namespace: otel-demo
+
+  syncPolicy:
+    # Sync as soon as git changes. No click in the UI.
+    automated: {}
+    syncOptions:
+      # Create otel-demo if it does not exist.
+      - CreateNamespace=true
