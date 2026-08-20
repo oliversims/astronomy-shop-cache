@@ -2,21 +2,26 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /usr/src/app/
 
-# Use Go build cache for dependencies
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    mkdir -p /root/.cache/go-build
+# git + CAs: Alpine's Go image omits them. Some modules (buf.build)
+# fall back to git when proxy.golang.org is slow or misses a path.
+RUN apk add --no-cache ca-certificates git
 
-# Copy
+ENV GOPROXY=https://proxy.golang.org,direct \
+    GOSUMDB=sum.golang.org
+
 COPY go.mod go.sum ./
 
-# Download
-RUN go mod download
+# proxy.golang.org / buf.build can flake on GitHub Actions BuildKit.
+RUN for i in 1 2 3 4 5; do \
+      go mod download && exit 0; \
+      echo "go mod download failed (attempt ${i}/5), retrying..."; \
+      sleep $((i * 4)); \
+    done; \
+    go mod download
 
-# Copy the rest of the source code
 COPY . .
 
-RUN go build -o product-catalog .
+RUN CGO_ENABLED=0 go build -o product-catalog .
 
 ####################################
 
